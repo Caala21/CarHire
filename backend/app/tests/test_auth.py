@@ -34,6 +34,29 @@ def test_login_returns_tokens(client):
     assert response.json()["user"]["email"] == "amina@example.com"
 
 
+def test_oauth_token_accepts_form_credentials(client):
+    client.post("/auth/register", json=registration_payload())
+
+    openapi = client.get("/openapi.json").json()
+    response = client.post(
+        "/auth/token",
+        data={
+            "username": "amina@example.com",
+            "password": "CorrectHorseBattery9",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["user"]["email"] == "amina@example.com"
+    assert body["access_token"]
+    assert body["refresh_token"]
+    assert (
+        openapi["components"]["securitySchemes"]["OAuth2PasswordBearer"]["flows"]["password"]["tokenUrl"]
+        == "/auth/token"
+    )
+
+
 def test_refresh_rotates_tokens_and_me_returns_user(client):
     registered = client.post("/auth/register", json=registration_payload()).json()
 
