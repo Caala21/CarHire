@@ -1,4 +1,3 @@
-import logging
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -30,8 +29,13 @@ def register_and_authenticate(client):
     return {"Authorization": f"Bearer {registration.json()['access_token']}"}
 
 
-def last_logged_code(caplog):
-    match = re.search(r"Verification code for (?:email|phone) destination .*: (\d{6})", caplog.text)
+def last_printed_code(capsys):
+    output = capsys.readouterr().out
+    match = re.search(
+        r"^\[DEV VERIFICATION\] channel=(?:email|phone) user=\d+ code=(\d{6})$",
+        output,
+        re.MULTILINE,
+    )
     assert match is not None
     return match.group(1)
 
@@ -54,19 +58,25 @@ def test_verification_endpoints_require_login(client):
         ("phone", "phone_verified_at"),
     ],
 )
-def test_verification_request_and_confirm(client, caplog, channel, verified_field):
+def test_verification_request_and_confirm(client, capsys, channel, verified_field):
     headers = register_and_authenticate(client)
 
-    with caplog.at_level(logging.INFO, logger="app.services.verification_senders"):
-        response = client.post(
-            "/auth/verify/request",
-            json={"channel": channel},
-            headers=headers,
-        )
+    response = client.post(
+        "/auth/verify/request",
+        json={"channel": channel},
+        headers=headers,
+    )
 
     assert response.status_code == 202
     assert response.json() == {"message": "Verification code sent"}
-    code = last_logged_code(caplog)
+    console_output = capsys.readouterr().out
+    match = re.search(
+        rf"^\[DEV VERIFICATION\] channel={channel} user=1 code=(\d{{6}})$",
+        console_output,
+        re.MULTILINE,
+    )
+    assert match is not None
+    code = match.group(1)
 
     confirm = client.post(
         "/auth/verify/confirm",
@@ -89,11 +99,10 @@ def test_verification_request_and_confirm(client, caplog, channel, verified_fiel
     assert reused.status_code == 400
 
 
-def test_verification_code_is_stored_as_a_hash(client, caplog):
+def test_verification_code_is_stored_as_a_hash(client, capsys):
     headers = register_and_authenticate(client)
-    with caplog.at_level(logging.INFO, logger="app.services.verification_senders"):
-        client.post("/auth/verify/request", json={"channel": "email"}, headers=headers)
-    code = last_logged_code(caplog)
+    client.post("/auth/verify/request", json={"channel": "email"}, headers=headers)
+    code = last_printed_code(capsys)
 
     db_generator = client.app.dependency_overrides[get_db]()
     db = next(db_generator)
@@ -108,11 +117,10 @@ def test_verification_code_is_stored_as_a_hash(client, caplog):
         db_generator.close()
 
 
-def test_wrong_code_is_limited_to_five_attempts(client, caplog):
+def test_wrong_code_is_limited_to_five_attempts(client, capsys):
     headers = register_and_authenticate(client)
-    with caplog.at_level(logging.INFO, logger="app.services.verification_senders"):
-        client.post("/auth/verify/request", json={"channel": "email"}, headers=headers)
-    code = last_logged_code(caplog)
+    client.post("/auth/verify/request", json={"channel": "email"}, headers=headers)
+    code = last_printed_code(capsys)
     wrong_code = f"{(int(code) + 1) % 1_000_000:06d}"
 
     for _ in range(5):
@@ -140,11 +148,10 @@ def test_wrong_code_is_limited_to_five_attempts(client, caplog):
         db_generator.close()
 
 
-def test_verification_code_expires(client, caplog):
+def test_verification_code_expires(client, capsys):
     headers = register_and_authenticate(client)
-    with caplog.at_level(logging.INFO, logger="app.services.verification_senders"):
-        client.post("/auth/verify/request", json={"channel": "email"}, headers=headers)
-    code = last_logged_code(caplog)
+    client.post("/auth/verify/request", json={"channel": "email"}, headers=headers)
+    code = last_printed_code(capsys)
 
     db_generator = client.app.dependency_overrides[get_db]()
     db = next(db_generator)
@@ -163,38 +170,48 @@ def test_verification_code_expires(client, caplog):
     assert response.status_code == 400
 
 
-def test_resend_limit_is_three_per_user_across_channels(client, caplog):
+def test_resend_limit_is_three_per_user_across_channels(client, capsys):
     headers = register_and_authenticate(client)
-    with caplog.at_level(logging.INFO, logger="app.services.verification_senders"):
-        for channel in ("email", "phone", "email"):
-            response = client.post(
-                "/auth/verify/request",
-                json={"channel": channel},
-                headers=headers,
-            )
-            assert response.status_code == 202
-
-        limited = client.post(
+    for channel in ("email", "phone", "email"):
+        response = client.post(
             "/auth/verify/request",
-            json={"channel": "phone"},
+            json={"channel": channel},
             headers=headers,
         )
+        assert response.status_code == 202
+
+    limited = client.post(
+        "/auth/verify/request",
+        json={"channel": "phone"},
+        headers=headers,
+    )
 
     assert limited.status_code == 429
     assert limited.json()["error"]["code"] == "verification_rate_limited"
 
 
-def test_console_sender_never_logs_code_in_production(monkeypatch, caplog):
+def test_console_sender_prints_visible_line_in_development(monkeypatch, capsys):
+    monkeypatch.setattr(settings, "production", False)
+    ConsoleVerificationSender(
+        channel=VerificationChannel.PHONE,
+        user_id=42,
+    ).send("254712345678", "123456")
+
+    assert capsys.readouterr().out == (
+        "[DEV VERIFICATION] channel=phone user=42 code=123456\n"
+    )
+
+
+def test_console_sender_never_prints_code_in_production(monkeypatch, capsys):
     monkeypatch.setattr(settings, "production", True)
 
-    with caplog.at_level(logging.INFO, logger="app.services.verification_senders"):
-        with pytest.raises(RuntimeError, match="disabled in production"):
-            ConsoleVerificationSender(channel=VerificationChannel.EMAIL).send(
-                "person@example.com",
-                "123456",
-            )
+    with pytest.raises(RuntimeError, match="disabled in production"):
+        ConsoleVerificationSender(
+            channel=VerificationChannel.EMAIL,
+            user_id=42,
+        ).send("person@example.com", "123456")
 
-    assert "123456" not in caplog.text
+    assert capsys.readouterr().out == ""
 
 
 def test_require_verified_phone_dependency():

@@ -1,4 +1,3 @@
-import logging
 import smtplib
 from email.message import EmailMessage
 from typing import Protocol
@@ -8,25 +7,23 @@ from urllib.request import Request, urlopen
 from app.core.config import settings
 from app.models.enums import VerificationChannel
 
-logger = logging.getLogger(__name__)
-
 
 class VerificationSender(Protocol):
     def send(self, destination: str, code: str) -> None: ...
 
 
 class ConsoleVerificationSender:
-    def __init__(self, channel: VerificationChannel):
+    def __init__(self, channel: VerificationChannel, user_id: int):
         self.channel = channel
+        self.user_id = user_id
 
     def send(self, destination: str, code: str) -> None:
         if settings.production:
             raise RuntimeError("Console verification delivery is disabled in production")
-        logger.info(
-            "Verification code for %s destination %s: %s",
-            self.channel.value,
-            destination,
-            code,
+        print(
+            f"[DEV VERIFICATION] channel={self.channel.value} "
+            f"user={self.user_id} code={code}",
+            flush=True,
         )
 
 
@@ -92,16 +89,16 @@ class AfricasTalkingSMSVerificationSender:
 
 
 def send_verification_code(
-    channel: VerificationChannel, destination: str, code: str
+    channel: VerificationChannel, destination: str, code: str, user_id: int
 ) -> None:
     if channel is VerificationChannel.EMAIL:
         if settings.verification_email_sender == "smtp":
             sender: VerificationSender = SMTPEmailVerificationSender()
         else:
-            sender = ConsoleVerificationSender(channel)
+            sender = ConsoleVerificationSender(channel, user_id)
     elif settings.verification_sms_sender == "africastalking":
         sender = AfricasTalkingSMSVerificationSender()
     else:
-        sender = ConsoleVerificationSender(channel)
+        sender = ConsoleVerificationSender(channel, user_id)
 
     sender.send(destination, code)

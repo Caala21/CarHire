@@ -78,7 +78,7 @@ def request_verification(
     destination = (
         user.email if channel is VerificationChannel.EMAIL else user.phone
     )
-    send_verification_code(channel, destination, code)
+    send_verification_code(channel, destination, code, user.id)
     db.commit()
     return record.expires_at
 
