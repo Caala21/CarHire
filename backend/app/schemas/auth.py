@@ -10,6 +10,7 @@ class UserRole(StrEnum):
     CUSTOMER = "customer"
     STAFF = "staff"
     ADMIN = "admin"
+    OWNER = "owner"
 
 
 class RegisterRequest(BaseModel):

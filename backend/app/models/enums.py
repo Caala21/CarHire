@@ -5,6 +5,7 @@ class Role(StrEnum):
     CUSTOMER = "customer"
     STAFF = "staff"
     ADMIN = "admin"
+    OWNER = "owner"
 
 
 class VehicleStatus(StrEnum):
@@ -44,3 +45,16 @@ class PaymentStatus(StrEnum):
 class VerificationChannel(StrEnum):
     EMAIL = "email"
     PHONE = "phone"
+
+
+class OwnerVerificationStatus(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class VehicleApprovalStatus(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    SUSPENDED = "suspended"
