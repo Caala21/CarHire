@@ -40,9 +40,9 @@ def _get_vehicle(db: Session, vehicle_id: int) -> Vehicle:
 def _can_manage_documents(db: Session, vehicle: Vehicle, user: User) -> None:
     if user.role in (Role.STAFF, Role.ADMIN):
         return
-    if user.role is Role.OWNER and vehicle.owner_id == user.id:
+    if user.role in (Role.CUSTOMER, Role.OWNER) and vehicle.owner_id == user.id:
         profile = db.get(OwnerProfile, user.id)
-        if profile is not None and profile.verification_status.value == "approved":
+        if profile is not None and profile.verification_status.value in {"pending", "approved"}:
             return
     raise AppError(403, "forbidden", "You can only manage documents for your own vehicles")
 

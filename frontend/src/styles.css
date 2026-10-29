@@ -1,0 +1,94 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  color: #17231e;
+  background: #f8faf8;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-optical-sizing: auto;
+  scroll-behavior: smooth;
+}
+
+body {
+  min-width: 320px;
+  margin: 0;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 3px solid rgba(20, 122, 85, 0.3);
+  outline-offset: 3px;
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-accent px-5 py-3 text-sm font-extrabold text-white transition hover:bg-accent-dark disabled:cursor-not-allowed disabled:opacity-55;
+  }
+
+  .btn-secondary {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-line bg-white px-4 py-2.5 text-sm font-bold text-ink transition hover:border-[#c5d6ca] hover:bg-[#f7faf7] disabled:cursor-not-allowed disabled:opacity-55;
+  }
+
+  .field {
+    @apply min-h-12 w-full rounded-xl border border-line bg-white px-3.5 text-sm font-medium text-ink placeholder:font-normal placeholder:text-[#a3ada6] transition focus:border-accent focus:outline-none;
+  }
+
+  .file-field {
+    @apply block w-full cursor-pointer rounded-xl border border-line bg-white px-3 py-2.5 text-xs text-muted file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-[#e7f4eb] file:px-3 file:py-2 file:text-xs file:font-bold file:text-accent hover:file:bg-[#d8ecde];
+  }
+
+  .eyebrow {
+    @apply text-[11px] font-extrabold uppercase tracking-[.15em] text-accent;
+  }
+
+  .section-title {
+    @apply text-3xl font-black tracking-[-.04em] text-ink sm:text-4xl;
+  }
+}
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: #edf1ed;
+}
+
+.skeleton::after {
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.65), transparent);
+  animation: shimmer 1.5s infinite;
+  content: "";
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

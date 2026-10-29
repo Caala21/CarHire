@@ -36,6 +36,12 @@ class OwnerReviewResponse(BaseModel):
     selfie_document_download_url: str | None
 
 
+class AdminOwnerDetailResponse(OwnerReviewResponse):
+    national_id: str
+    kra_pin: str
+    payout_phone: str
+
+
 class RejectionRequest(BaseModel):
     reason: str = Field(min_length=1, max_length=1000)
 
@@ -115,6 +121,27 @@ class VehiclePageResponse(BaseModel):
 class AdminVehicleResponse(VehicleResponse):
     logbook_download_url: str | None
     insurance_download_url: str | None
+    owner_name: str | None = None
+    owner_id: int | None = None
+    owner_id_document_download_url: str | None = None
+    owner_verification_status: OwnerVerificationStatus | None = None
+
+
+class AdminDashboardResponse(BaseModel):
+    pending_owners: int
+    pending_vehicles: int
+    approved_today: int
+    expiring_documents: int
+
+
+class AuditTrailResponse(BaseModel):
+    id: int
+    action: str
+    target_type: str
+    target_id: int
+    actor_name: str | None
+    reason: str | None
+    created_at: datetime
 
 
 class FileUploadResponse(BaseModel):

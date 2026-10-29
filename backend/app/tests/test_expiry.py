@@ -156,6 +156,9 @@ def test_expiring_list_returns_approved_vehicles_within_fourteen_days(client):
             insurance_soon.id,
             inspection_soon.id,
         }
+        dashboard = client.get("/api/admin/dashboard", headers=headers)
+        assert dashboard.status_code == 200
+        assert dashboard.json()["expiring_documents"] == 2
     finally:
         generator.close()
 
@@ -203,3 +206,5 @@ def test_expiry_admin_endpoints_require_admin(client):
 
     assert client.post("/api/admin/jobs/check-expiry", headers=headers).status_code == 403
     assert client.get("/api/admin/vehicles/expiring", headers=headers).status_code == 403
+    assert client.get("/api/admin/dashboard", headers=headers).status_code == 403
+    assert client.get("/api/admin/audit", headers=headers).status_code == 403

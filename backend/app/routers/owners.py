@@ -30,6 +30,17 @@ def apply(
     return OwnerApplicationResponse.model_validate(profile)
 
 
+@router.get("/me", response_model=OwnerApplicationResponse)
+def my_application(
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> OwnerApplicationResponse:
+    profile = db.get(OwnerProfile, user.id)
+    if profile is None:
+        raise AppError(404, "owner_application_not_found", "Owner application was not found")
+    return OwnerApplicationResponse.model_validate(profile)
+
+
 @router.get("/me/vehicles", response_model=list[VehicleResponse])
 def my_vehicles(
     user: User = Depends(current_user),

@@ -79,6 +79,12 @@ def create_vehicle(db: Session, actor: User, payload: VehicleCreateRequest) -> V
             raise AppError(403, "owner_not_approved", "An approved owner profile is required")
         owner_id = actor.id
         approval_status = VehicleApprovalStatus.PENDING
+    elif actor.role is Role.CUSTOMER:
+        profile = db.get(OwnerProfile, actor.id)
+        if profile is None or profile.verification_status is not OwnerVerificationStatus.PENDING:
+            raise AppError(403, "owner_application_required", "A pending owner application is required")
+        owner_id = actor.id
+        approval_status = VehicleApprovalStatus.PENDING
     elif actor.role in (Role.STAFF, Role.ADMIN):
         owner_id = None
         approval_status = VehicleApprovalStatus.APPROVED

@@ -148,6 +148,12 @@ def test_admin_approves_owner_and_audits_action(client, isolated_uploads):
     upload_owner_documents(client, headers)
     admin_headers = create_admin(client)
 
+    detail = client.get(f"/api/admin/owners/{owner_id}", headers=admin_headers)
+    assert detail.status_code == 200
+    assert detail.json()["national_id"] == f"NAT-{owner_id}-12345"
+    assert detail.json()["kra_pin"] == f"A00{owner_id}12345Z"
+    assert detail.json()["payout_phone"] == "254712345678"
+
     pending = client.get("/api/admin/owners?status=pending", headers=admin_headers)
     assert pending.status_code == 200
     assert [profile["user_id"] for profile in pending.json()] == [owner_id]
@@ -168,6 +174,12 @@ def test_admin_approves_owner_and_audits_action(client, isolated_uploads):
     assert approved.status_code == 200
     assert approved.json()["verification_status"] == "approved"
     assert client.get("/auth/me", headers=headers).json()["role"] == "owner"
+    audit_trail = client.get("/api/admin/audit", headers=admin_headers)
+    assert audit_trail.status_code == 200
+    assert audit_trail.json()[0]["action"] == "approve"
+    dashboard = client.get("/api/admin/dashboard", headers=admin_headers)
+    assert dashboard.status_code == 200
+    assert dashboard.json()["pending_owners"] == 0
 
     generator = client.app.dependency_overrides[get_db]()
     db = next(generator)
@@ -199,6 +211,78 @@ def test_approved_owner_creates_pending_vehicle_hidden_from_public(client, isola
     assert listing.status_code == 200
     assert listing.json()["items"] == []
     assert client.get(f"/api/vehicles/{vehicle_id}").status_code == 404
+
+
+def test_pending_owner_can_submit_vehicle_for_review(client, isolated_uploads):
+    owner_headers, _ = apply_owner(client, "pending-vehicle-owner@example.com")
+
+    application = client.get("/api/owners/me", headers=owner_headers)
+    assert application.status_code == 200
+    assert application.json()["verification_status"] == "pending"
+
+    created = client.post(
+        "/api/vehicles",
+        json=vehicle_payload(),
+        headers=owner_headers,
+    )
+    assert created.status_code == 201
+    assert created.json()["approval_status"] == "pending"
+    vehicle_id = created.json()["id"]
+
+    for document_type in ("logbook", "insurance"):
+        uploaded = client.post(
+            f"/api/vehicles/{vehicle_id}/documents",
+            data={"document_type": document_type},
+            files={"file": ("document.pdf", PDF_BYTES, "application/pdf")},
+            headers=owner_headers,
+        )
+        assert uploaded.status_code == 201
+
+    photo = client.post(
+        f"/api/vehicles/{vehicle_id}/photos",
+        files={"file": ("photo.png", PNG_BYTES, "image/png")},
+        headers=owner_headers,
+    )
+    assert photo.status_code == 201
+    assert client.get("/api/owners/me/vehicles", headers=owner_headers).json()[0][
+        "approval_status"
+    ] == "pending"
+
+
+def test_admin_can_review_pending_vehicle_photo_and_dashboard(client, isolated_uploads):
+    owner_headers, _ = apply_owner(client, "admin-photo-owner@example.com")
+    admin_headers = create_admin(client, "admin-photo-reviewer@example.com")
+    created = client.post(
+        "/api/vehicles",
+        json=vehicle_payload("KDC456B"),
+        headers=owner_headers,
+    )
+    vehicle_id = created.json()["id"]
+    uploaded = client.post(
+        f"/api/vehicles/{vehicle_id}/photos",
+        files={"file": ("photo.png", PNG_BYTES, "image/png")},
+        headers=owner_headers,
+    )
+    assert uploaded.status_code == 201
+
+    pending = client.get("/api/admin/vehicles", headers=admin_headers)
+    assert pending.status_code == 200
+    admin_vehicle = next(item for item in pending.json() if item["id"] == vehicle_id)
+    assert admin_vehicle["owner_name"] == "Amina Wanjiku"
+    file_id = int(admin_vehicle["photos"][0].rsplit("/", 1)[1])
+    photo = client.get(f"/api/admin/vehicle-photos/{file_id}", headers=admin_headers)
+    assert photo.status_code == 200
+    assert photo.content == PNG_BYTES
+    assert client.get(
+        f"/api/admin/vehicle-photos/{file_id}",
+        headers=owner_headers,
+    ).status_code == 403
+
+    dashboard = client.get("/api/admin/dashboard", headers=admin_headers)
+    assert dashboard.status_code == 200
+    assert dashboard.json()["pending_owners"] == 1
+    assert dashboard.json()["pending_vehicles"] == 1
+    assert dashboard.json()["expiring_documents"] == 0
 
 
 def test_owner_cannot_edit_another_owners_vehicle(client, isolated_uploads):
