@@ -30,7 +30,7 @@ from app.services.expiry import check_vehicle_expiry, list_expiring_vehicles
 from app.services.storage import storage
 
 router = APIRouter(prefix="/admin", tags=["admin"])
-api_router = APIRouter(prefix="/api/admin", tags=["admin"])
+api_router = APIRouter(prefix="/admin", tags=["admin"])
 
 
 class ExpiryCheckResponse(BaseModel):

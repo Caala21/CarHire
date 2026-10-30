@@ -15,16 +15,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 register_error_handlers(app)
-app.include_router(auth.router)
-app.include_router(admin.router)
-app.include_router(admin.api_router)
-app.include_router(owners.router)
-app.include_router(assistant.router)
-app.include_router(vehicles.router)
-app.include_router(vehicles.public_router)
-app.include_router(files.router)
+app.include_router(auth.router, prefix="/api")
+app.include_router(admin.router, prefix="/api")
+app.include_router(admin.api_router, prefix="/api")
+app.include_router(owners.router, prefix="/api")
+app.include_router(assistant.router, prefix="/api")
+app.include_router(vehicles.router, prefix="/api")
+app.include_router(vehicles.public_router, prefix="/api")
+app.include_router(files.router, prefix="/api")
 
 
-@app.get("/health", tags=["health"])
+@app.get("/api/health", tags=["health"])
 def health() -> dict[str, str]:
     return {"status": "ok"}

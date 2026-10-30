@@ -17,7 +17,7 @@ from app.schemas.fleet import (
 from app.services.file_records import persist_upload
 from app.services.fleet import apply_as_owner
 
-router = APIRouter(prefix="/api/owners", tags=["owners"])
+router = APIRouter(prefix="/owners", tags=["owners"])
 
 
 @router.post("/apply", response_model=OwnerApplicationResponse, status_code=201)

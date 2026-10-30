@@ -14,7 +14,7 @@ from app.schemas.fleet import (
 )
 from app.services.assistant import assistant_search
 
-router = APIRouter(prefix="/api/assistant", tags=["assistant"])
+router = APIRouter(prefix="/assistant", tags=["assistant"])
 RATE_LIMIT = 10
 RATE_WINDOW_SECONDS = 60
 _request_times: dict[str, deque[float]] = {}

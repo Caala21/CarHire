@@ -12,7 +12,7 @@ def registration_payload():
 
 
 def test_register_creates_customer_and_returns_tokens(client):
-    response = client.post("/auth/register", json=registration_payload())
+    response = client.post("/api/auth/register", json=registration_payload())
 
     assert response.status_code == 201
     body = response.json()
@@ -23,10 +23,10 @@ def test_register_creates_customer_and_returns_tokens(client):
 
 
 def test_login_returns_tokens(client):
-    client.post("/auth/register", json=registration_payload())
+    client.post("/api/auth/register", json=registration_payload())
 
     response = client.post(
-        "/auth/login",
+        "/api/auth/login",
         json={"email": "amina@example.com", "password": "CorrectHorseBattery9"},
     )
 
@@ -35,11 +35,13 @@ def test_login_returns_tokens(client):
 
 
 def test_oauth_token_accepts_form_credentials(client):
-    client.post("/auth/register", json=registration_payload())
+    client.post("/api/auth/register", json=registration_payload())
 
     openapi = client.get("/openapi.json").json()
+    assert client.get("/docs").status_code == 200
+    assert all(path.startswith("/api/") for path in openapi["paths"])
     response = client.post(
-        "/auth/token",
+        "/api/auth/token",
         data={
             "username": "amina@example.com",
             "password": "CorrectHorseBattery9",
@@ -53,15 +55,15 @@ def test_oauth_token_accepts_form_credentials(client):
     assert body["refresh_token"]
     assert (
         openapi["components"]["securitySchemes"]["OAuth2PasswordBearer"]["flows"]["password"]["tokenUrl"]
-        == "/auth/token"
+        == "/api/auth/token"
     )
 
 
 def test_refresh_rotates_tokens_and_me_returns_user(client):
-    registered = client.post("/auth/register", json=registration_payload()).json()
+    registered = client.post("/api/auth/register", json=registration_payload()).json()
 
-    refreshed = client.post("/auth/refresh", json={"refresh_token": registered["refresh_token"]})
-    me = client.get("/auth/me", headers={"Authorization": f"Bearer {refreshed.json()['access_token']}"})
+    refreshed = client.post("/api/auth/refresh", json={"refresh_token": registered["refresh_token"]})
+    me = client.get("/api/auth/me", headers={"Authorization": f"Bearer {refreshed.json()['access_token']}"})
 
     assert refreshed.status_code == 200
     assert me.status_code == 200
@@ -69,9 +71,9 @@ def test_refresh_rotates_tokens_and_me_returns_user(client):
 
 
 def test_non_admin_is_blocked_from_admin_route(client):
-    registered = client.post("/auth/register", json=registration_payload()).json()
+    registered = client.post("/api/auth/register", json=registration_payload()).json()
 
-    response = client.get("/admin/ping", headers={"Authorization": f"Bearer {registered['access_token']}"})
+    response = client.get("/api/admin/ping", headers={"Authorization": f"Bearer {registered['access_token']}"})
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "forbidden"
@@ -98,9 +100,9 @@ def test_admin_can_access_admin_route(client, admin_user):
             generator.close()
 
     client.app.dependency_overrides[get_db] = seed_admin
-    login = client.post("/auth/login", json={"email": admin_user.email, "password": "Admin-password-123"})
+    login = client.post("/api/auth/login", json={"email": admin_user.email, "password": "Admin-password-123"})
     client.app.dependency_overrides[get_db] = original
 
-    response = client.get("/admin/ping", headers={"Authorization": f"Bearer {login.json()['access_token']}"})
+    response = client.get("/api/admin/ping", headers={"Authorization": f"Bearer {login.json()['access_token']}"})
 
     assert response.status_code == 200

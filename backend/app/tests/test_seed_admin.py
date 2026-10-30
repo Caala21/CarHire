@@ -30,7 +30,7 @@ def test_seed_admin_creates_admin_with_hashed_password(client):
 
 def test_seed_admin_requires_explicit_promotion_for_existing_user(client):
     registration = client.post(
-        "/auth/register",
+        "/api/auth/register",
         json={
             "full_name": "Existing Customer",
             "email": "existing-customer@example.com",
@@ -59,7 +59,7 @@ def test_seed_admin_requires_explicit_promotion_for_existing_user(client):
 
 def test_seed_admin_cli_promotes_existing_without_printing_password(client, monkeypatch, capsys):
     registration = client.post(
-        "/auth/register",
+        "/api/auth/register",
         json={
             "full_name": "Existing Customer",
             "email": "promote-admin@example.com",

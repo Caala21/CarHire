@@ -8,7 +8,7 @@ from app.models import OwnerProfile, Role, StoredFile, User, Vehicle
 from app.routers.auth import current_user
 from app.services.storage import storage
 
-router = APIRouter(prefix="/api", tags=["files"])
+router = APIRouter(tags=["files"])
 
 
 @router.get("/files/{file_id}")

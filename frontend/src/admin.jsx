@@ -46,7 +46,7 @@ export function LoginPage({ adminOnly = false }) {
     setBusy(true);
     setError("");
     try {
-      const result = await fetch(apiUrl("/auth/login"), {
+      const result = await fetch(apiUrl("/api/auth/login"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: jsonBody({ email, password }),

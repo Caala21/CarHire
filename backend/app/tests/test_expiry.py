@@ -9,7 +9,7 @@ from app.services.expiry import check_vehicle_expiry, list_expiring_vehicles
 
 def register_admin(client):
     registration = client.post(
-        "/auth/register",
+        "/api/auth/register",
         json={
             "full_name": "Expiry Admin",
             "email": "expiry-admin@example.com",
@@ -194,7 +194,7 @@ def test_expiry_job_cli_runs_service_and_prints_summary(client, monkeypatch, cap
 
 def test_expiry_admin_endpoints_require_admin(client):
     registration = client.post(
-        "/auth/register",
+        "/api/auth/register",
         json={
             "full_name": "Regular User",
             "email": "regular-expiry@example.com",

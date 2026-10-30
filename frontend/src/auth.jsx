@@ -32,9 +32,9 @@ export function AuthProvider({ children }) {
       };
 
       let response = await makeRequest(tokensRef.current?.access_token);
-      if (response.status === 401 && tokensRef.current?.refresh_token && path !== "/auth/refresh") {
+      if (response.status === 401 && tokensRef.current?.refresh_token && path !== "/api/auth/refresh") {
         if (!refreshPromise.current) {
-          refreshPromise.current = fetch(apiUrl("/auth/refresh"), {
+          refreshPromise.current = fetch(apiUrl("/api/auth/refresh"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ refresh_token: tokensRef.current.refresh_token }),
@@ -69,7 +69,11 @@ export function AuthProvider({ children }) {
     [requestResponse],
   );
   const requestFile = useCallback(
-    async (path, options) => (await requestResponse(path, options)).blob(),
+    async (path, options) => {
+      const response = await requestResponse(path, options);
+      if (!response.ok) await readResponse(response);
+      return response.blob();
+    },
     [requestResponse],
   );
 

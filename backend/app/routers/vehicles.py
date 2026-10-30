@@ -26,8 +26,8 @@ from app.services.fleet import (
 )
 from app.services.storage import storage
 
-router = APIRouter(prefix="/api/vehicles", tags=["vehicles"])
-public_router = APIRouter(prefix="/api/public", tags=["public"])
+router = APIRouter(prefix="/vehicles", tags=["vehicles"])
+public_router = APIRouter(prefix="/public", tags=["public"])
 
 
 def _get_vehicle(db: Session, vehicle_id: int) -> Vehicle:

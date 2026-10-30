@@ -17,7 +17,7 @@ def isolated_uploads(tmp_path, monkeypatch):
 
 def register(client, email: str) -> dict[str, str]:
     response = client.post(
-        "/auth/register",
+        "/api/auth/register",
         json={
             "full_name": "Amina Wanjiku",
             "email": email,
@@ -43,7 +43,7 @@ def update_user(client, user_id: int, **fields) -> None:
 
 
 def user_id_from_header(client, headers: dict[str, str]) -> int:
-    response = client.get("/auth/me", headers=headers)
+    response = client.get("/api/auth/me", headers=headers)
     assert response.status_code == 200
     return response.json()["id"]
 
@@ -140,7 +140,7 @@ def test_owner_apply_requires_verified_phone_and_stays_pending(client):
 
     assert applied.status_code == 201
     assert applied.json()["verification_status"] == "pending"
-    assert client.get("/auth/me", headers=headers).json()["role"] == "customer"
+    assert client.get("/api/auth/me", headers=headers).json()["role"] == "customer"
 
 
 def test_admin_approves_owner_and_audits_action(client, isolated_uploads):
@@ -173,7 +173,7 @@ def test_admin_approves_owner_and_audits_action(client, isolated_uploads):
     )
     assert approved.status_code == 200
     assert approved.json()["verification_status"] == "approved"
-    assert client.get("/auth/me", headers=headers).json()["role"] == "owner"
+    assert client.get("/api/auth/me", headers=headers).json()["role"] == "owner"
     audit_trail = client.get("/api/admin/audit", headers=admin_headers)
     assert audit_trail.status_code == 200
     assert audit_trail.json()[0]["action"] == "approve"

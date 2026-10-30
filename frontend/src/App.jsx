@@ -533,7 +533,7 @@ function SignupFlow() {
     if (step !== 2 || verificationRequested) return;
     let active = true;
     setBusy(true);
-    request("/auth/verify/request", { method: "POST", body: jsonBody({ channel: "phone" }) })
+    request("/api/auth/verify/request", { method: "POST", body: jsonBody({ channel: "phone" }) })
       .then(() => {
         if (active) {
           setVerificationRequested(true);
@@ -576,9 +576,9 @@ function SignupFlow() {
     setBusy(true);
     setError("");
     try {
-      await request("/auth/register", { method: "POST", body: jsonBody(account) });
+      await request("/api/auth/register", { method: "POST", body: jsonBody(account) });
       try {
-        const tokens = await request("/auth/login", {
+        const tokens = await request("/api/auth/login", {
           method: "POST",
           body: jsonBody({ email: account.email, password: account.password }),
         });
@@ -599,7 +599,7 @@ function SignupFlow() {
     setBusy(true);
     setError("");
     try {
-      const tokens = await request("/auth/login", {
+      const tokens = await request("/api/auth/login", {
         method: "POST",
         body: jsonBody({ email: account.email, password: account.password }),
       });
@@ -617,7 +617,7 @@ function SignupFlow() {
     setBusy(true);
     setError("");
     try {
-      await request("/auth/verify/request", { method: "POST", body: jsonBody({ channel: "phone" }) });
+      await request("/api/auth/verify/request", { method: "POST", body: jsonBody({ channel: "phone" }) });
       setVerificationRequested(true);
       setResendSeconds(30);
     } catch (requestError) {
@@ -632,7 +632,7 @@ function SignupFlow() {
     setBusy(true);
     setError("");
     try {
-      await request("/auth/verify/confirm", {
+      await request("/api/auth/verify/confirm", {
         method: "POST",
         body: jsonBody({ channel: "phone", code: verifyCode }),
       });

@@ -17,7 +17,7 @@ from app.services.verification_senders import (
 
 def register_and_authenticate(client):
     registration = client.post(
-        "/auth/register",
+        "/api/auth/register",
         json={
             "full_name": "Amina Wanjiku",
             "email": "amina@example.com",
@@ -41,10 +41,10 @@ def last_printed_code(capsys):
 
 
 def test_verification_endpoints_require_login(client):
-    assert client.post("/auth/verify/request", json={"channel": "email"}).status_code == 401
+    assert client.post("/api/auth/verify/request", json={"channel": "email"}).status_code == 401
     assert (
         client.post(
-            "/auth/verify/confirm",
+            "/api/auth/verify/confirm",
             json={"channel": "email", "code": "123456"},
         ).status_code
         == 401
@@ -62,7 +62,7 @@ def test_verification_request_and_confirm(client, capsys, channel, verified_fiel
     headers = register_and_authenticate(client)
 
     response = client.post(
-        "/auth/verify/request",
+        "/api/auth/verify/request",
         json={"channel": channel},
         headers=headers,
     )
@@ -79,20 +79,20 @@ def test_verification_request_and_confirm(client, capsys, channel, verified_fiel
     code = match.group(1)
 
     confirm = client.post(
-        "/auth/verify/confirm",
+        "/api/auth/verify/confirm",
         json={"channel": channel, "code": code},
         headers=headers,
     )
 
     assert confirm.status_code == 200
-    profile = client.get("/auth/me", headers=headers).json()
+    profile = client.get("/api/auth/me", headers=headers).json()
     assert profile[verified_field] is not None
     other_field = "phone_verified_at" if channel == "email" else "email_verified_at"
     assert profile[other_field] is None
     assert code not in confirm.text
 
     reused = client.post(
-        "/auth/verify/confirm",
+        "/api/auth/verify/confirm",
         json={"channel": channel, "code": code},
         headers=headers,
     )
@@ -101,7 +101,7 @@ def test_verification_request_and_confirm(client, capsys, channel, verified_fiel
 
 def test_verification_code_is_stored_as_a_hash(client, capsys):
     headers = register_and_authenticate(client)
-    client.post("/auth/verify/request", json={"channel": "email"}, headers=headers)
+    client.post("/api/auth/verify/request", json={"channel": "email"}, headers=headers)
     code = last_printed_code(capsys)
 
     db_generator = client.app.dependency_overrides[get_db]()
@@ -119,20 +119,20 @@ def test_verification_code_is_stored_as_a_hash(client, capsys):
 
 def test_wrong_code_is_limited_to_five_attempts(client, capsys):
     headers = register_and_authenticate(client)
-    client.post("/auth/verify/request", json={"channel": "email"}, headers=headers)
+    client.post("/api/auth/verify/request", json={"channel": "email"}, headers=headers)
     code = last_printed_code(capsys)
     wrong_code = f"{(int(code) + 1) % 1_000_000:06d}"
 
     for _ in range(5):
         response = client.post(
-            "/auth/verify/confirm",
+            "/api/auth/verify/confirm",
             json={"channel": "email", "code": wrong_code},
             headers=headers,
         )
         assert response.status_code == 400
 
     blocked = client.post(
-        "/auth/verify/confirm",
+        "/api/auth/verify/confirm",
         json={"channel": "email", "code": code},
         headers=headers,
     )
@@ -150,7 +150,7 @@ def test_wrong_code_is_limited_to_five_attempts(client, capsys):
 
 def test_verification_code_expires(client, capsys):
     headers = register_and_authenticate(client)
-    client.post("/auth/verify/request", json={"channel": "email"}, headers=headers)
+    client.post("/api/auth/verify/request", json={"channel": "email"}, headers=headers)
     code = last_printed_code(capsys)
 
     db_generator = client.app.dependency_overrides[get_db]()
@@ -163,7 +163,7 @@ def test_verification_code_expires(client, capsys):
         db_generator.close()
 
     response = client.post(
-        "/auth/verify/confirm",
+        "/api/auth/verify/confirm",
         json={"channel": "email", "code": code},
         headers=headers,
     )
@@ -174,14 +174,14 @@ def test_resend_limit_is_three_per_user_across_channels(client, capsys):
     headers = register_and_authenticate(client)
     for channel in ("email", "phone", "email"):
         response = client.post(
-            "/auth/verify/request",
+            "/api/auth/verify/request",
             json={"channel": channel},
             headers=headers,
         )
         assert response.status_code == 202
 
     limited = client.post(
-        "/auth/verify/request",
+        "/api/auth/verify/request",
         json={"channel": "phone"},
         headers=headers,
     )
