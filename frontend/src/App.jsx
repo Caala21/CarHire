@@ -12,6 +12,8 @@ import {
   Clock3,
   Fuel,
   Heart,
+  Eye,
+  EyeOff,
   MapPin,
   Menu,
   ShieldCheck,
@@ -22,15 +24,17 @@ import {
 } from "lucide-react";
 import {
   Link,
+  Navigate,
   Route,
   Routes,
+  useLocation,
   useNavigate,
   useParams,
   useSearchParams,
 } from "react-router-dom";
 import { useAuth } from "./auth.jsx";
 import { apiUrl, jsonBody } from "./lib/api.js";
-import { AdminRoute, DemoPage, LoginPage } from "./admin.jsx";
+import { AdminRoute, DemoPage } from "./admin.jsx";
 
 const fallbackPhoto =
   "https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1200&q=85";
@@ -55,7 +59,15 @@ function Logo({ light = false }) {
 
 function SiteHeader() {
   const { isSignedIn, user, signOut } = useAuth();
+  const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+
+  function handleSignOut() {
+    signOut();
+    setMenuOpen(false);
+    navigate("/");
+  }
+
   return (
     <header className="relative z-20 border-b border-line/80 bg-white/90 backdrop-blur">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 sm:px-8">
@@ -68,12 +80,28 @@ function SiteHeader() {
         </nav>
         <div className="hidden items-center gap-3 md:flex">
           {isSignedIn ? (
-            <>
-              <span className="max-w-36 truncate text-sm font-semibold text-ink">Hi, {user?.full_name?.split(" ")[0]}</span>
-              <button onClick={signOut} className="btn-secondary !py-2.5">Sign out</button>
-            </>
+            <div className="relative">
+              <button
+                type="button"
+                aria-expanded={menuOpen}
+                aria-haspopup="menu"
+                onClick={() => setMenuOpen((open) => !open)}
+                className="inline-flex max-w-56 items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold text-ink hover:bg-canvas"
+              >
+                <span className="truncate">{user?.full_name}</span>
+                <ChevronDown size={16} className="shrink-0 text-muted" />
+              </button>
+              {menuOpen && (
+                <div role="menu" className="absolute right-0 top-full z-30 mt-2 grid min-w-48 gap-1 rounded-2xl border border-line bg-white p-2 shadow-card">
+                  <Link role="menuitem" to="/owner" onClick={() => setMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-canvas">My cars</Link>
+                  {user?.role === "admin" && <Link role="menuitem" to="/admin" onClick={() => setMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-canvas">Admin</Link>}
+                  <button role="menuitem" onClick={handleSignOut} className="rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-red-700 hover:bg-red-50">Sign out</button>
+                </div>
+              )}
+            </div>
           ) : (
             <>
+              <Link to="/signin" className="px-3 py-2 text-sm font-bold text-ink transition hover:text-accent">Sign in</Link>
               <Link to="/signup" className="px-3 py-2 text-sm font-bold text-ink transition hover:text-accent">Sign up</Link>
               <Link to="/signup?intent=list" className="btn-primary !py-2.5">List your car</Link>
             </>
@@ -92,7 +120,19 @@ function SiteHeader() {
           <a href="/#cars" onClick={() => setMenuOpen(false)} className="rounded-xl px-3 py-3 text-sm font-semibold">Explore cars</a>
           <a href="/#how-it-works" onClick={() => setMenuOpen(false)} className="rounded-xl px-3 py-3 text-sm font-semibold">How it works</a>
           <Link to="/signup?intent=list" onClick={() => setMenuOpen(false)} className="rounded-xl px-3 py-3 text-sm font-semibold text-accent">List your car</Link>
-          {user?.role === "admin" && <Link to="/admin" onClick={() => setMenuOpen(false)} className="rounded-xl px-3 py-3 text-sm font-semibold text-accent">Admin area</Link>}
+          {isSignedIn ? (
+            <>
+              <p className="px-3 pt-2 text-xs font-bold uppercase tracking-wider text-muted">{user?.full_name}</p>
+              <Link to="/owner" onClick={() => setMenuOpen(false)} className="rounded-xl px-3 py-3 text-sm font-semibold">My cars</Link>
+              {user?.role === "admin" && <Link to="/admin" onClick={() => setMenuOpen(false)} className="rounded-xl px-3 py-3 text-sm font-semibold">Admin</Link>}
+              <button onClick={handleSignOut} className="rounded-xl px-3 py-3 text-left text-sm font-semibold text-red-700">Sign out</button>
+            </>
+          ) : (
+            <>
+              <Link to="/signin" onClick={() => setMenuOpen(false)} className="rounded-xl px-3 py-3 text-sm font-semibold">Sign in</Link>
+              <Link to="/signup" onClick={() => setMenuOpen(false)} className="rounded-xl px-3 py-3 text-sm font-semibold">Sign up</Link>
+            </>
+          )}
         </nav>
       )}
     </header>
@@ -858,6 +898,7 @@ function AccountStep({ account, onChange, busy, onSubmit }) {
       </div>
       <button disabled={busy} className="btn-primary mt-7 w-full">{busy ? <Spinner /> : "Create account"} <ArrowRight size={16} /></button>
       <p className="mt-4 text-center text-xs leading-5 text-muted">By continuing, you agree to our terms and privacy policy.</p>
+      <p className="mt-4 text-center text-sm text-muted">Already have an account? <Link to="/signin" className="font-bold text-accent">Sign in</Link></p>
     </form>
   );
 }
@@ -1033,6 +1074,324 @@ function UploadPreview({ file, compact = false }) {
   );
 }
 
+function getPostSignInPath(user, from) {
+  let destination = null;
+  if (typeof from === "string" && from.startsWith("/") && !from.startsWith("//")) {
+    destination = from;
+  } else if (from?.pathname?.startsWith("/") && !from.pathname.startsWith("//")) {
+    destination = `${from.pathname}${from.search || ""}${from.hash || ""}`;
+  }
+  if (destination && !destination.startsWith("/signin") && !destination.startsWith("/verify-phone")) {
+    return destination;
+  }
+  if (user?.role === "admin") return "/admin";
+  if (user?.role === "owner") return "/owner";
+  return "/";
+}
+
+function SignInPage() {
+  const { signIn } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  async function submit(event) {
+    event.preventDefault();
+    setError("");
+    setNotice("");
+    const normalizedEmail = email.trim();
+    if (!normalizedEmail || !password || password.length > 128) {
+      setError("Enter a valid email address and password.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const response = await fetch(apiUrl("/api/auth/login"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: jsonBody({ email: normalizedEmail, password }),
+      });
+      const payload = await readResponse(response);
+      signIn(payload);
+      const destination = getPostSignInPath(payload.user, location.state?.from);
+      if (!payload.user.phone_verified_at) {
+        navigate("/verify-phone", { replace: true, state: { from: destination } });
+      } else {
+        navigate(destination, { replace: true });
+      }
+    } catch (loginError) {
+      setError(loginError.message || "We couldn't sign you in. Check your details and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <main className="grid min-h-[72vh] place-items-center bg-canvas px-5 py-12">
+        <div className="w-full max-w-md rounded-[2rem] border border-line bg-white p-6 shadow-card sm:p-9">
+          <Logo />
+          <p className="eyebrow mt-8">Welcome back</p>
+          <h1 className="mt-2 text-2xl font-black tracking-tight text-ink">Sign in to CarHire</h1>
+          <p className="mt-2 text-sm leading-6 text-muted">Pick up right where you left off.</p>
+          {error && <p role="alert" className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</p>}
+          {notice && <p role="status" className="mt-5 rounded-xl border border-[#d8e9dc] bg-[#f1f8f3] px-4 py-3 text-sm text-accent">{notice}</p>}
+          <form onSubmit={submit} className="mt-6 space-y-4">
+            <label className="block">
+              <span className="mb-2 block text-xs font-bold text-ink">Email address</span>
+              <input
+                required
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                className="field"
+                placeholder="you@example.com"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-2 block text-xs font-bold text-ink">Password</span>
+              <span className="relative block">
+                <input
+                  required
+                  minLength="1"
+                  maxLength="128"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  className="field pr-12"
+                  placeholder="Your password"
+                />
+                <button
+                  type="button"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  onClick={() => setShowPassword((shown) => !shown)}
+                  className="absolute inset-y-0 right-0 grid w-12 place-items-center text-muted hover:text-ink"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </span>
+            </label>
+            <div className="text-right">
+              <button type="button" onClick={() => { setError(""); setNotice("Coming soon"); }} className="text-xs font-bold text-accent hover:underline">
+                Forgot password?
+              </button>
+            </div>
+            <button disabled={busy} className="btn-primary w-full">
+              {busy ? <Spinner /> : "Sign in"} <ArrowRight size={16} />
+            </button>
+          </form>
+          <p className="mt-5 text-center text-sm text-muted">
+            New to CarHire? <Link to="/signup" className="font-bold text-accent">Create account</Link>
+          </p>
+        </div>
+      </main>
+      <Footer />
+    </>
+  );
+}
+
+function PhoneVerificationPage() {
+  const { isSignedIn, request, signIn, tokens, user } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [requested, setRequested] = useState(false);
+  const [seconds, setSeconds] = useState(0);
+
+  useEffect(() => {
+    if (!isSignedIn || user?.phone_verified_at) return;
+    let active = true;
+    setBusy(true);
+    request("/api/auth/verify/request", { method: "POST", body: jsonBody({ channel: "phone" }) })
+      .then(() => {
+        if (active) {
+          setRequested(true);
+          setSeconds(30);
+        }
+      })
+      .catch((requestError) => { if (active) setError(requestError.message); })
+      .finally(() => { if (active) setBusy(false); });
+    return () => { active = false; };
+  }, [isSignedIn, user?.phone_verified_at, request]);
+
+  useEffect(() => {
+    if (seconds <= 0) return undefined;
+    const timer = window.setTimeout(() => setSeconds((value) => value - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [seconds]);
+
+  if (!isSignedIn) return <Navigate to="/signin" replace />;
+  if (user?.phone_verified_at) return <Navigate to={getPostSignInPath(user, location.state?.from)} replace />;
+
+  async function requestCode() {
+    setBusy(true);
+    setError("");
+    try {
+      await request("/api/auth/verify/request", { method: "POST", body: jsonBody({ channel: "phone" }) });
+      setRequested(true);
+      setSeconds(30);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmCode(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await request("/api/auth/verify/confirm", {
+        method: "POST",
+        body: jsonBody({ channel: "phone", code }),
+      });
+      const refreshed = await request("/api/auth/refresh", {
+        method: "POST",
+        body: jsonBody({ refresh_token: tokens.refresh_token }),
+      });
+      signIn(refreshed);
+      navigate(getPostSignInPath(refreshed.user, location.state?.from), { replace: true });
+    } catch (verificationError) {
+      setError(verificationError.message || "We couldn't verify your phone. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <main className="grid min-h-[72vh] place-items-center bg-canvas px-5 py-12">
+        <div className="w-full max-w-md rounded-[2rem] border border-line bg-white p-6 shadow-card sm:p-9">
+          <Logo />
+          {error && <p role="alert" className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</p>}
+          <form onSubmit={confirmCode} className="mt-8">
+            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#e7f4eb] text-accent"><ShieldCheck size={22} /></span>
+            <p className="eyebrow mt-5">One quick check</p>
+            <h1 className="mt-2 text-2xl font-black tracking-tight text-ink">Verify your phone</h1>
+            <p className="mt-2 text-sm leading-6 text-muted">We sent a six-digit code to <span className="font-bold text-ink">{user?.phone}</span>.</p>
+            <p className="mt-4 rounded-xl bg-[#f8f6ed] px-4 py-3 text-xs leading-5 text-[#796b47]">In demo mode the code appears in the server log.</p>
+            <label className="mt-6 block text-xs font-bold text-ink" htmlFor="phone-code">Verification code</label>
+            <input id="phone-code" required inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength="6" value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000" className="field mt-2 text-center text-2xl font-bold tracking-[.45em]" />
+            <button disabled={busy || code.length !== 6} className="btn-primary mt-5 w-full">{busy ? <Spinner /> : "Verify phone"} <ArrowRight size={16} /></button>
+            <div className="mt-4 text-center text-sm text-muted">
+              {requested ? "Didn't get a code?" : "Requesting your code…"}{" "}
+              <button type="button" disabled={busy || seconds > 0} onClick={requestCode} className="font-bold text-accent disabled:cursor-not-allowed disabled:text-[#a3ada6]">
+                {seconds > 0 ? `Resend in 0:${String(seconds).padStart(2, "0")}` : "Resend code"}
+              </button>
+            </div>
+          </form>
+        </div>
+      </main>
+      <Footer />
+    </>
+  );
+}
+
+function OwnerDashboardPage() {
+  const { isSignedIn, request, user } = useAuth();
+  const location = useLocation();
+  const [application, setApplication] = useState(null);
+  const [cars, setCars] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!isSignedIn) return;
+    if (user?.role !== "owner") {
+      setLoading(false);
+      return;
+    }
+    let active = true;
+    Promise.all([request("/api/owners/me"), request("/api/owners/me/vehicles")])
+      .then(([owner, vehicles]) => {
+        if (active) {
+          setApplication(owner);
+          setCars(vehicles);
+        }
+      })
+      .catch((loadError) => { if (active) setError(loadError.message); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [isSignedIn, request, user?.role]);
+
+  if (!isSignedIn) return <Navigate to="/signin" replace state={{ from: location }} />;
+
+  return (
+    <>
+      <main className="mx-auto min-h-[65vh] max-w-5xl px-5 py-10 sm:px-8 sm:py-14">
+        <p className="eyebrow">Owner dashboard</p>
+        <h1 className="mt-2 text-3xl font-black tracking-tight text-ink">My cars</h1>
+        <p className="mt-2 text-sm text-muted">Welcome back, {user?.full_name}.</p>
+        {loading && <div className="mt-8 rounded-2xl border border-line bg-white p-6 text-sm text-muted"><Spinner /> <span className="ml-2">Loading your cars…</span></div>}
+        {!loading && user?.role !== "owner" && (
+          <div className="mt-8 rounded-2xl border border-line bg-white p-6 text-sm leading-6 text-muted">
+            Your account doesn't have an owner dashboard yet.
+          </div>
+        )}
+        {error && <div className="mt-8"><Alert>{error}</Alert></div>}
+        {!loading && !error && user?.role === "owner" && (
+          <>
+            <div className="mt-8 grid gap-4 sm:grid-cols-2">
+              <div className="rounded-2xl border border-line bg-white p-5">
+                <p className="text-xs font-bold uppercase tracking-wider text-muted">Owner application</p>
+                <p className="mt-3 text-lg font-extrabold capitalize text-ink">{application?.verification_status?.replaceAll("_", " ") || "Not submitted"}</p>
+              </div>
+              <div className="rounded-2xl border border-line bg-white p-5">
+                <p className="text-xs font-bold uppercase tracking-wider text-muted">Your cars</p>
+                <p className="mt-3 text-lg font-extrabold text-ink">{cars.length}</p>
+              </div>
+            </div>
+            <section className="mt-9">
+              <h2 className="text-xl font-black text-ink">Listings</h2>
+              {cars.length ? (
+                <div className="mt-4 grid gap-3">
+                  {cars.map((car) => (
+                    <article key={car.id} className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-line bg-white p-5">
+                      <div>
+                        <h3 className="font-extrabold text-ink">{car.year} {car.make} {car.model}</h3>
+                        <p className="mt-1 text-sm text-muted">{car.plate} · KES {formatPrice(car.daily_rate)} / day</p>
+                      </div>
+                      <StatusPill status={car.approval_status} />
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-4 rounded-2xl border border-line bg-white p-5 text-sm text-muted">You haven't submitted any cars yet.</p>
+              )}
+            </section>
+          </>
+        )}
+      </main>
+      <Footer />
+    </>
+  );
+}
+
+function SessionExpiredNotice() {
+  const { sessionExpired, clearSessionExpired } = useAuth();
+  if (!sessionExpired) return null;
+  return (
+    <div role="alert" className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e9dfc8] bg-[#fbf7ed] px-5 py-3 text-sm text-[#796b47] sm:px-8">
+      <span>Your session has expired. Please sign in again.</span>
+      <div className="flex items-center gap-4">
+        <Link to="/signin" onClick={clearSessionExpired} className="font-bold text-accent underline underline-offset-2">Sign in</Link>
+        <button type="button" aria-label="Dismiss session notice" onClick={clearSessionExpired}><X size={16} /></button>
+      </div>
+    </div>
+  );
+}
+
 function StatusPill({ status }) {
   const style = status === "approved" ? "bg-[#e7f4eb] text-accent" : status === "rejected" ? "bg-red-50 text-red-700" : "bg-[#fbf0dc] text-[#94630f]";
   return <span className={`shrink-0 rounded-full px-3 py-1.5 text-[11px] font-bold capitalize ${style}`}>{status?.replaceAll("_", " ") || "pending"}</span>;
@@ -1061,11 +1420,15 @@ export default function App() {
   return (
     <div className="min-h-screen bg-canvas text-ink">
       <SiteHeader />
+      <SessionExpiredNotice />
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/vehicles/:id" element={<VehicleDetailPage />} />
         <Route path="/signup" element={<SignupFlow />} />
-        <Route path="/login" element={<LoginPage />} />
+        <Route path="/signin" element={<SignInPage />} />
+        <Route path="/login" element={<Navigate to="/signin" replace />} />
+        <Route path="/verify-phone" element={<PhoneVerificationPage />} />
+        <Route path="/owner" element={<OwnerDashboardPage />} />
         <Route path="/admin/*" element={<AdminRoute />} />
         <Route path="/demo" element={<DemoPage />} />
         <Route path="*" element={<NotFound />} />

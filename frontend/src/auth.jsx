@@ -2,10 +2,34 @@ import { createContext, useCallback, useContext, useRef, useState } from "react"
 import { ApiError, apiUrl, readResponse } from "./lib/api.js";
 
 const AuthContext = createContext(null);
+const AUTH_STORAGE_KEY = "carhire.auth";
+
+function readStoredTokens() {
+  const stored = window.localStorage.getItem(AUTH_STORAGE_KEY);
+  if (!stored) return null;
+
+  try {
+    const value = JSON.parse(stored);
+    if (
+      typeof value?.access_token === "string" &&
+      typeof value?.refresh_token === "string" &&
+      value.user
+    ) {
+      return value;
+    }
+  } catch {
+    window.localStorage.removeItem(AUTH_STORAGE_KEY);
+    return null;
+  }
+
+  window.localStorage.removeItem(AUTH_STORAGE_KEY);
+  return null;
+}
 
 export function AuthProvider({ children }) {
-  const [tokens, setTokenState] = useState(null);
-  const tokensRef = useRef(null);
+  const [tokens, setTokenState] = useState(readStoredTokens);
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const tokensRef = useRef(tokens);
   const refreshPromise = useRef(null);
 
   const setTokens = useCallback((value) => {
@@ -18,6 +42,8 @@ export function AuthProvider({ children }) {
       : null;
     tokensRef.current = next;
     setTokenState(next);
+    if (next) window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(next));
+    else window.localStorage.removeItem(AUTH_STORAGE_KEY);
   }, []);
 
   const requestResponse = useCallback(
@@ -44,22 +70,24 @@ export function AuthProvider({ children }) {
               setTokens(refreshed);
               return refreshed.access_token;
             })
-            .catch((error) => {
-              setTokens(null);
-              throw error;
-            })
             .finally(() => {
               refreshPromise.current = null;
             });
         }
         try {
           response = await makeRequest(await refreshPromise.current);
-        } catch {
+        } catch (error) {
+          if (error.status !== 401) throw error;
+          setTokens(null);
+          setSessionExpired(true);
           throw new ApiError("Your session has expired. Please sign in again.", 401);
         }
       }
 
-      if (response.status === 401 && tokensRef.current) setTokens(null);
+      if (response.status === 401 && tokensRef.current) {
+        setTokens(null);
+        setSessionExpired(true);
+      }
       return response;
     },
     [setTokens],
@@ -78,10 +106,16 @@ export function AuthProvider({ children }) {
   );
 
   const signIn = useCallback(
-    (tokenResponse) => setTokens(tokenResponse),
+    (tokenResponse) => {
+      setTokens(tokenResponse);
+      setSessionExpired(false);
+    },
     [setTokens],
   );
-  const signOut = useCallback(() => setTokens(null), [setTokens]);
+  const signOut = useCallback(() => {
+    setTokens(null);
+    setSessionExpired(false);
+  }, [setTokens]);
 
   return (
     <AuthContext.Provider
@@ -89,6 +123,8 @@ export function AuthProvider({ children }) {
         tokens,
         user: tokens?.user ?? null,
         isSignedIn: Boolean(tokens?.access_token),
+        sessionExpired,
+        clearSessionExpired: () => setSessionExpired(false),
         request,
         requestFile,
         signIn,

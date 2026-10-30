@@ -13,8 +13,10 @@ npm run dev
 Set `VITE_API_URL` to the FastAPI origin (for example `http://localhost:8000`).
 The frontend calls the routes documented by the API's `/openapi.json`.
 
-Access and refresh tokens are held in memory only. An expired access token is
-refreshed once and the original request is retried.
+Access and refresh tokens are stored in browser local storage so a session
+survives page refreshes. An expired access token is refreshed once and the
+original request is retried; if the refresh token has expired, the app asks the
+user to sign in again.
 
 ## Admin pitch demo
 
