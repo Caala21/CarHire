@@ -10,3 +10,10 @@ models, and locations, as well as transmission, fuel type, and prices stated
 after “under”. Requests without a key return the reply “AI mode is off, showing
 keyword results”. The endpoint is limited to 10 requests per minute per IP
 address.
+
+## Demo data
+
+From `backend/`, run `python -m app.seed_demo` to add six sample approved
+vehicles and one approved demo owner. The seed uses reserved placeholder
+identity/contact values and image URLs, creates no identity documents, and is
+safe to run repeatedly.
