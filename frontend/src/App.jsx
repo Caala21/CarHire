@@ -438,7 +438,7 @@ function VehicleDetailPage() {
   const [selected, setSelected] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const photos = vehicle?.photos?.length ? vehicle.photos.map(apiUrl) : samplePhotos;
+  const photos = vehicle?.photos?.map(apiUrl) || [];
 
   async function loadVehicle() {
     setLoading(true);
@@ -476,9 +476,17 @@ function VehicleDetailPage() {
         <Link to="/" className="mb-6 inline-flex items-center gap-2 text-sm font-bold text-muted transition hover:text-accent"><ArrowLeft size={16} /> All cars</Link>
         <div className="grid gap-8 lg:grid-cols-[1.35fr_.65fr]">
           <div>
-            <div className="overflow-hidden rounded-3xl bg-[#edf1ed]">
-              <img src={photos[selected] || fallbackPhoto} alt={`${vehicle.make} ${vehicle.model}`} className="h-[18rem] w-full object-cover sm:h-[27rem]" onError={(event) => { event.currentTarget.src = fallbackPhoto; }} />
-            </div>
+            {photos.length ? (
+              <div className="overflow-hidden rounded-3xl bg-[#edf1ed]">
+                <img src={photos[selected] || fallbackPhoto} alt={`${vehicle.make} ${vehicle.model}`} className="h-[18rem] w-full object-cover sm:h-[27rem]" onError={(event) => { event.currentTarget.src = fallbackPhoto; }} />
+              </div>
+            ) : (
+              <div className="flex h-[18rem] flex-col items-center justify-center rounded-3xl border border-dashed border-line bg-canvas text-center sm:h-[27rem]">
+                <span className="grid h-14 w-14 place-items-center rounded-2xl bg-white text-accent shadow-soft"><CarFront size={27} /></span>
+                <p className="mt-4 font-extrabold text-ink">Photos coming soon</p>
+                <p className="mt-1 text-sm text-muted">This vehicle doesn’t have photos yet.</p>
+              </div>
+            )}
             {photos.length > 1 && <div className="mt-3 grid grid-cols-3 gap-3">{photos.slice(0, 3).map((photo, index) => <button key={photo} onClick={() => setSelected(index)} className={`overflow-hidden rounded-2xl ${selected === index ? "ring-2 ring-accent ring-offset-2" : ""}`}><img src={photo} alt={`View ${index + 1}`} className="h-24 w-full object-cover sm:h-32" onError={(event) => { event.currentTarget.src = fallbackPhoto; }} /></button>)}</div>}
             <div className="mt-8">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-[#e7f4eb] px-3 py-1.5 text-xs font-bold text-accent"><BadgeCheck size={14} /> Verified listing</span>

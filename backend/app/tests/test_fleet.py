@@ -403,6 +403,7 @@ def test_approved_vehicle_document_download_and_public_response_privacy(client, 
 def test_public_vehicle_photo_upload_is_capped_at_eight(client, isolated_uploads):
     owner_headers, owner_id = apply_owner(client, "photo-owner@example.com")
     approve_owner(client, owner_headers, owner_id)
+    outsider_headers = register(client, "photo-outsider@example.com")
     created = client.post(
         "/api/vehicles",
         json=vehicle_payload("KDA444A"),
@@ -425,7 +426,37 @@ def test_public_vehicle_photo_upload_is_capped_at_eight(client, isolated_uploads
     )
     assert approved.status_code == 200
 
-    photo_url = None
+    openapi = client.get("/openapi.json").json()
+    assert "post" in openapi["paths"]["/api/vehicles/{vehicle_id}/photos"]
+    assert "get" in openapi["paths"]["/api/public/vehicle-photos/{file_id}"]
+
+    forbidden = client.post(
+        f"/api/vehicles/{vehicle_id}/photos",
+        files={"file": ("car.png", PNG_BYTES, "image/png")},
+        headers=outsider_headers,
+    )
+    assert forbidden.status_code == 403
+
+    invalid_type = client.post(
+        f"/api/vehicles/{vehicle_id}/photos",
+        files={"file": ("car.gif", b"GIF89a", "image/gif")},
+        headers=owner_headers,
+    )
+    assert invalid_type.status_code == 422
+    oversized = client.post(
+        f"/api/vehicles/{vehicle_id}/photos",
+        files={
+            "file": (
+                "large.png",
+                b"\x89PNG\r\n\x1a\n" + b"x" * (5 * 1024 * 1024),
+                "image/png",
+            )
+        },
+        headers=owner_headers,
+    )
+    assert oversized.status_code == 413
+
+    photo_urls = []
     for _ in range(8):
         uploaded = client.post(
             f"/api/vehicles/{vehicle_id}/photos",
@@ -433,7 +464,7 @@ def test_public_vehicle_photo_upload_is_capped_at_eight(client, isolated_uploads
             headers=owner_headers,
         )
         assert uploaded.status_code == 201
-        photo_url = uploaded.json()["download_url"]
+        photo_urls.append(uploaded.json()["download_url"])
 
     ninth = client.post(
         f"/api/vehicles/{vehicle_id}/photos",
@@ -441,7 +472,13 @@ def test_public_vehicle_photo_upload_is_capped_at_eight(client, isolated_uploads
         headers=owner_headers,
     )
     assert ninth.status_code == 409
-    assert photo_url is not None
-    public_photo = client.get(photo_url)
+    assert len(photo_urls) == 8
+    public_photo = client.get(photo_urls[0])
     assert public_photo.status_code == 200
     assert public_photo.content == PNG_BYTES
+
+    listing = client.get("/api/vehicles").json()
+    listed_vehicle = next(item for item in listing["items"] if item["id"] == vehicle_id)
+    detail = client.get(f"/api/vehicles/{vehicle_id}").json()
+    assert listed_vehicle["photos"] == photo_urls
+    assert detail["photos"] == photo_urls
