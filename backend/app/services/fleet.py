@@ -146,6 +146,7 @@ def update_vehicle(
 def public_vehicle_query(
     *,
     make: str | None = None,
+    model: str | None = None,
     seats: int | None = None,
     transmission: str | None = None,
     fuel_type: str | None = None,
@@ -169,6 +170,8 @@ def public_vehicle_query(
     )
     if make:
         query = query.where(Vehicle.make.ilike(f"%{make}%"))
+    if model:
+        query = query.where(Vehicle.model.ilike(f"%{model}%"))
     if seats is not None:
         query = query.where(Vehicle.seats == seats)
     if transmission:

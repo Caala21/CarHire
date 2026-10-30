@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     africastalking_api_key: SecretStr | None = None
     africastalking_sender_id: str | None = None
     africastalking_sandbox: bool = True
+    anthropic_api_key: SecretStr | None = None
+    anthropic_model: str = "claude-3-5-haiku-latest"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

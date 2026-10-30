@@ -177,6 +177,11 @@ function LandingPage() {
   const [error, setError] = useState("");
   const [location, setLocation] = useState(searchParams.get("location") || "");
   const [filters, setFilters] = useState(searchParams.get("location") || "");
+  const [assistantQuery, setAssistantQuery] = useState("");
+  const [assistantMessage, setAssistantMessage] = useState("");
+  const [assistantResult, setAssistantResult] = useState(null);
+  const [assistantLoading, setAssistantLoading] = useState(false);
+  const [assistantError, setAssistantError] = useState("");
 
   async function loadVehicles() {
     setLoading(true);
@@ -204,6 +209,26 @@ function LandingPage() {
     setFilters(value);
     setSearchParams(value ? { location: value } : {});
     document.getElementById("cars")?.scrollIntoView({ behavior: "smooth" });
+  }
+
+  async function searchWithAssistant(message) {
+    const query = message.trim();
+    if (!query) return;
+    setAssistantMessage(query);
+    setAssistantLoading(true);
+    setAssistantError("");
+    setAssistantResult(null);
+    try {
+      const result = await request("/api/assistant/search", {
+        method: "POST",
+        body: jsonBody({ message: query }),
+      });
+      setAssistantResult(result);
+    } catch (searchError) {
+      setAssistantError(searchError.message || "We couldn't search for cars right now.");
+    } finally {
+      setAssistantLoading(false);
+    }
   }
 
   return (
@@ -257,6 +282,79 @@ function LandingPage() {
                 <p className="text-[11px] font-bold uppercase tracking-wider text-muted">Made for Kenya</p>
                 <p className="mt-1 text-sm font-extrabold text-ink">KES · M-Pesa · Karibu</p>
               </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-7xl px-5 py-12 sm:px-8 sm:py-16" aria-labelledby="assistant-search-title">
+          <div className="mx-auto max-w-4xl">
+            <div className="mb-6 text-center">
+              <p className="eyebrow">Search with a little help</p>
+              <h2 id="assistant-search-title" className="section-title mt-3">Tell us what you need.</h2>
+              <p className="mt-2 text-sm text-muted">Describe your ideal car, and we’ll find matching listings.</p>
+            </div>
+            <div className="rounded-3xl border border-line bg-white p-4 shadow-soft sm:p-6">
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  searchWithAssistant(assistantQuery);
+                }}
+                className="flex flex-col gap-3 sm:flex-row"
+              >
+                <label className="flex min-h-12 min-w-0 flex-1 items-center gap-3 rounded-xl border border-line px-4">
+                  <Sparkles className="shrink-0 text-accent" size={18} />
+                  <input
+                    value={assistantQuery}
+                    onChange={(event) => setAssistantQuery(event.target.value)}
+                    placeholder="Try: automatic SUV in Nakuru under 8000"
+                    maxLength={2000}
+                    className="w-full border-0 bg-transparent py-3 text-sm text-ink outline-none placeholder:text-[#a3ada6]"
+                    aria-label="Describe the car you are looking for"
+                  />
+                </label>
+                <button className="btn-primary sm:min-w-36" type="submit" disabled={assistantLoading || !assistantQuery.trim()}>
+                  {assistantLoading ? <><Spinner /> Searching</> : <>Find a car <ArrowRight size={17} /></>}
+                </button>
+              </form>
+
+              {assistantMessage && (
+                <div className="mt-5 space-y-3" aria-live="polite">
+                  <p className="ml-auto w-fit max-w-[90%] rounded-2xl rounded-br-sm bg-[#e7f4eb] px-4 py-3 text-sm font-semibold text-ink">
+                    {assistantMessage}
+                  </p>
+                  {assistantLoading && (
+                    <p className="flex w-fit items-center gap-2 rounded-2xl rounded-bl-sm bg-canvas px-4 py-3 text-sm text-muted">
+                      <Spinner /> Looking through available cars…
+                    </p>
+                  )}
+                  {assistantError && (
+                    <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">
+                      <p>{assistantError}</p>
+                      <button className="mt-2 font-bold underline underline-offset-2" onClick={() => searchWithAssistant(assistantMessage)}>
+                        Try again
+                      </button>
+                    </div>
+                  )}
+                  {assistantResult && (
+                    <>
+                      <p className="w-fit max-w-[90%] rounded-2xl rounded-bl-sm bg-canvas px-4 py-3 text-sm leading-6 text-ink">
+                        {assistantResult.reply}
+                      </p>
+                      {assistantResult.vehicles.length ? (
+                        <div className="grid gap-5 pt-2 sm:grid-cols-2 lg:grid-cols-3">
+                          {assistantResult.vehicles.map((vehicle, index) => (
+                            <VehicleCard key={vehicle.id} vehicle={vehicle} index={index} />
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="rounded-2xl border border-dashed border-line px-4 py-5 text-center text-sm text-muted">
+                          No matching cars yet. Try another make, model, or location.
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </section>

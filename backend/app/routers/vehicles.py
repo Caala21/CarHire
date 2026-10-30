@@ -50,6 +50,7 @@ def _can_manage_documents(db: Session, vehicle: Vehicle, user: User) -> None:
 @router.get("", response_model=VehiclePageResponse)
 def list_vehicles(
     make: str | None = None,
+    model: str | None = None,
     seats: int | None = Query(default=None, ge=1, le=100),
     transmission: str | None = None,
     fuel_type: str | None = None,
@@ -62,6 +63,7 @@ def list_vehicles(
 ) -> VehiclePageResponse:
     query = public_vehicle_query(
         make=make,
+        model=model,
         seats=seats,
         transmission=transmission,
         fuel_type=fuel_type,

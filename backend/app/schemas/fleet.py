@@ -118,6 +118,47 @@ class VehiclePageResponse(BaseModel):
     offset: int
 
 
+class AssistantSearchRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("message")
+    @classmethod
+    def reject_blank_message(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Message cannot be blank")
+        return value.strip()
+
+
+class AssistantSearchFilters(BaseModel):
+    make: str | None = None
+    model: str | None = None
+    location: str | None = None
+    seats: int | None = Field(default=None, ge=1, le=100)
+    transmission: str | None = None
+    fuel_type: str | None = None
+    min_price: Decimal | None = Field(default=None, ge=0)
+    max_price: Decimal | None = Field(default=None, ge=0)
+
+
+class AssistantVehicleResponse(BaseModel):
+    id: int
+    make: str
+    model: str
+    year: int
+    seats: int
+    transmission: str
+    fuel_type: str
+    daily_rate: Decimal
+    location: str | None
+    photos: list[str]
+
+
+class AssistantSearchResponse(BaseModel):
+    reply: str
+    filters: AssistantSearchFilters
+    vehicles: list[AssistantVehicleResponse]
+
+
 class AdminVehicleResponse(VehicleResponse):
     logbook_download_url: str | None
     insurance_download_url: str | None
