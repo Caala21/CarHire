@@ -4,7 +4,6 @@ from decimal import Decimal
 
 from anthropic import APIError, Anthropic
 from pydantic import ValidationError
-from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -86,52 +85,65 @@ def search_vehicles(
     )
 
 
-def _keyword_fallback(db: Session, message: str) -> tuple[str, AssistantSearchFilters, list[Vehicle]]:
-    words = set(re.findall(r"[a-z0-9]+", message.casefold()))
-    words -= {"a", "an", "and", "are", "at", "for", "in", "me", "my", "near", "of", "on", "or", "the", "to", "with"}
-    words = {word for word in words if len(word) > 1 and not word.isdigit()}
-    if not words:
-        return (
-            "Tell me a make, model, or location and I’ll look for matching cars.",
-            AssistantSearchFilters(),
-            [],
+def _known_value(message: str, values: list[str | None]) -> str | None:
+    normalized_message = message.casefold()
+    matches = (
+        value
+        for value in values
+        if value
+        and re.search(
+            rf"(?<![a-z0-9]){re.escape(value.casefold())}(?![a-z0-9])",
+            normalized_message,
         )
-
-    keyword_filters = [
-        column.ilike(f"%{word}%")
-        for word in words
-        for column in (Vehicle.make, Vehicle.model, Vehicle.location)
-    ]
-    query = public_vehicle_query().where(or_(*keyword_filters))
-    candidates = db.scalars(
-        query.order_by(Vehicle.created_at.desc(), Vehicle.id.desc()).limit(100)
-    ).all()
-
-    def score(vehicle: Vehicle) -> int:
-        listing_words = set(
-            re.findall(
-                r"[a-z0-9]+",
-                " ".join((vehicle.make, vehicle.model, vehicle.location or "")).casefold(),
-            )
-        )
-        return len(words & listing_words)
-
-    vehicles = sorted(candidates, key=score, reverse=True)[:MAX_RESULTS]
-    filters = AssistantSearchFilters()
-    if vehicles:
-        matched_values = {}
-        message_lower = message.casefold()
-        for name in ("make", "model", "location"):
-            value = getattr(vehicles[0], name)
-            if value and value.casefold() in message_lower:
-                matched_values[name] = value
-        filters = AssistantSearchFilters(**matched_values)
-
-    reply = (
-        "I found a few cars that may fit what you’re looking for."
-        if vehicles
-        else "I couldn’t find a match. Try a make, model, or location, such as Toyota in Nakuru."
     )
+    return max(matches, key=len, default=None)
+
+
+def _keyword_filters(db: Session, message: str) -> AssistantSearchFilters:
+    filters: dict[str, object] = {}
+    for field in ("make", "model", "location"):
+        column = getattr(Vehicle, field)
+        values = db.scalars(
+            public_vehicle_query()
+            .with_only_columns(column, maintain_column_froms=True)
+            .distinct()
+        ).all()
+        value = _known_value(message, values)
+        if value:
+            filters[field] = value
+
+    message_words = set(re.findall(r"[a-z0-9]+", message.casefold()))
+    if "automatic" in message_words:
+        filters["transmission"] = "automatic"
+    elif "manual" in message_words:
+        filters["transmission"] = "manual"
+
+    if "diesel" in message_words:
+        filters["fuel_type"] = "diesel"
+    if "suv" in message_words and "model" not in filters:
+        filters["model"] = "SUV"
+
+    price_match = re.search(r"\bunder\s+[$€£]?\s*([\d,]+(?:\.\d+)?)\b", message, re.I)
+    if price_match:
+        filters["max_price"] = Decimal(price_match.group(1).replace(",", ""))
+
+    return AssistantSearchFilters(**filters)
+
+
+def _keyword_fallback(
+    db: Session,
+    message: str,
+    *,
+    reply: str | None = None,
+) -> tuple[str, AssistantSearchFilters, list[Vehicle]]:
+    filters = _keyword_filters(db, message)
+    vehicles = search_vehicles(db, **filters.model_dump())
+    if reply is None:
+        reply = (
+            "I found a few cars that may fit what you’re looking for."
+            if vehicles
+            else "I couldn’t find a match. Try a make, model, or location, such as Toyota in Nakuru."
+        )
     return reply, filters, vehicles
 
 
@@ -212,6 +224,13 @@ def _anthropic_search(
 def assistant_search(
     db: Session, message: str
 ) -> tuple[str, AssistantSearchFilters, list[Vehicle]]:
+    if settings.anthropic_api_key is None:
+        return _keyword_fallback(
+            db,
+            message,
+            reply="AI mode is off, showing keyword results",
+        )
+
     result = _anthropic_search(db, message)
     if result is not None:
         return result
