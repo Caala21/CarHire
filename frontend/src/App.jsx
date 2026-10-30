@@ -33,7 +33,7 @@ import {
   useSearchParams,
 } from "react-router-dom";
 import { useAuth } from "./auth.jsx";
-import { apiUrl, jsonBody } from "./lib/api.js";
+import { apiUrl, jsonBody, readResponse } from "./lib/api.js";
 import { AdminRoute, DemoPage } from "./admin.jsx";
 
 const fallbackPhoto =
