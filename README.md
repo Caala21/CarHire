@@ -1,5 +1,12 @@
 # CarHire
 
+## Google sign-in
+
+Configure the Google OAuth web client ID as `GOOGLE_CLIENT_ID` in the backend
+environment and `VITE_GOOGLE_CLIENT_ID` in the frontend environment. Use the
+same client ID for both. Google-created accounts still need a phone number and
+phone verification before they can apply as an owner or use booking flows.
+
 ## AI vehicle search
 
 The public `POST /api/assistant/search` endpoint uses the Anthropic API when

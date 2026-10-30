@@ -11,7 +11,9 @@ npm run dev
 ```
 
 Set `VITE_API_URL` to the FastAPI origin (for example `http://localhost:8000`).
-The frontend calls the routes documented by the API's `/openapi.json`.
+Set `VITE_GOOGLE_CLIENT_ID` to the Google OAuth web client ID to enable the
+Google sign-in button. The frontend calls the routes documented by the API's
+`/openapi.json`.
 
 Access and refresh tokens are stored in browser local storage so a session
 survives page refreshes. An expired access token is refreshed once and the

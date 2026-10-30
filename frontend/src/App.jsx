@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowLeft,
@@ -45,6 +45,69 @@ const samplePhotos = [
 ];
 const formatPrice = (amount) =>
   new Intl.NumberFormat("en-KE", { maximumFractionDigits: 0 }).format(Number(amount || 0));
+const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+
+function GoogleSignInButton({ onCredential, disabled }) {
+  const buttonRef = useRef(null);
+  const onCredentialRef = useRef(onCredential);
+  const [scriptError, setScriptError] = useState("");
+  onCredentialRef.current = onCredential;
+
+  useEffect(() => {
+    if (!googleClientId) return undefined;
+    let active = true;
+    const script = document.getElementById("google-identity-services");
+    const renderButton = () => {
+      if (!active || !buttonRef.current || !window.google?.accounts?.id) return;
+      window.google.accounts.id.initialize({
+        client_id: googleClientId,
+        callback: ({ credential }) => {
+          if (credential) void onCredentialRef.current(credential);
+        },
+      });
+      window.google.accounts.id.renderButton(buttonRef.current, {
+        theme: "outline",
+        size: "large",
+        text: "continue_with",
+        shape: "rectangular",
+        width: 400,
+      });
+    };
+    const handleScriptError = () => {
+      if (active) setScriptError("Google sign-in couldn't load. Please try again later.");
+    };
+
+    if (window.google?.accounts?.id) {
+      renderButton();
+    } else {
+      script?.addEventListener("load", renderButton);
+      script?.addEventListener("error", handleScriptError);
+    }
+
+    return () => {
+      active = false;
+      script?.removeEventListener("load", renderButton);
+      script?.removeEventListener("error", handleScriptError);
+    };
+  }, []);
+
+  return (
+    <div>
+      {googleClientId ? (
+        <div
+          ref={buttonRef}
+          aria-busy={disabled}
+          className={`flex min-h-10 justify-center ${disabled ? "pointer-events-none opacity-50" : ""}`}
+        />
+      ) : (
+        <p role="status" className="text-center text-xs text-muted">
+          Google sign-in isn't configured yet.
+        </p>
+      )}
+      {scriptError && <p role="alert" className="mt-2 text-center text-xs text-red-700">{scriptError}</p>}
+    </div>
+  );
+}
 
 function Logo({ light = false }) {
   return (
@@ -555,9 +618,10 @@ const signupSteps = ["Account", "Verify", "Your plan", "Owner details", "Your ca
 
 function SignupFlow() {
   const { request, signIn, user } = useAuth();
+  const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState(user?.phone_verified_at ? 3 : 1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [account, setAccount] = useState({ full_name: "", email: "", phone: "254", password: "" });
@@ -638,6 +702,30 @@ function SignupFlow() {
       }
     } catch (submitError) {
       setError(submitError.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function signInWithGoogle(credential) {
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(apiUrl("/api/auth/google"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: jsonBody({ credential }),
+      });
+      const payload = await readResponse(response);
+      signIn(payload);
+      if (!payload.user.phone_verified_at) {
+        const from = intent ? `/signup?intent=${intent}` : "/signup";
+        navigate("/verify-phone", { replace: true, state: { from } });
+      } else {
+        navigate(getPostSignInPath(payload.user, location.state?.from), { replace: true });
+      }
+    } catch (loginError) {
+      setError(loginError.message || "We couldn't sign you in with Google. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -862,7 +950,7 @@ function SignupFlow() {
             <div className="mt-3 hidden grid-cols-5 text-center sm:grid">{signupSteps.map((label, index) => <span key={label} className={`text-[10px] font-semibold ${index + 1 <= step ? "text-accent" : "text-[#a3ada6]"}`}>{label}</span>)}</div>
             {error && <div className="mt-6"><Alert>{error}</Alert>{loginAfterRegister && <button onClick={loginExistingAccount} disabled={busy} className="mt-3 text-sm font-bold text-accent underline underline-offset-2">{busy ? "Signing you in…" : "Try signing in again"}</button>}</div>}
 
-            {step === 1 && <AccountStep account={account} onChange={setAccount} busy={busy} onSubmit={submitRegistration} />}
+            {step === 1 && <AccountStep account={account} onChange={setAccount} busy={busy} onSubmit={submitRegistration} onGoogleCredential={signInWithGoogle} />}
             {step === 2 && <VerifyStep phone={account.phone} code={verifyCode} setCode={setVerifyCode} busy={busy} requested={verificationRequested} seconds={resendSeconds} onSubmit={confirmCode} onResend={requestCode} />}
             {step === 3 && (
               <section className="mt-8">
@@ -885,11 +973,15 @@ function SignupFlow() {
   );
 }
 
-function AccountStep({ account, onChange, busy, onSubmit }) {
+function AccountStep({ account, onChange, busy, onSubmit, onGoogleCredential }) {
   const update = (key) => (event) => onChange((current) => ({ ...current, [key]: event.target.value }));
   return (
     <form onSubmit={onSubmit} className="mt-8">
       <p className="eyebrow">A good start</p><h1 className="mt-2 text-2xl font-black tracking-tight text-ink sm:text-3xl">Create your account</h1><p className="mt-2 text-sm leading-6 text-muted">Just the basics. Your information stays safe with us.</p>
+      <div className="mt-6">
+        <GoogleSignInButton onCredential={onGoogleCredential} disabled={busy} />
+        <div className="my-5 flex items-center gap-3 text-xs text-muted"><span className="h-px flex-1 bg-line" />or create an account with email<span className="h-px flex-1 bg-line" /></div>
+      </div>
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
         <FormField label="Full name"><input required minLength="2" maxLength="160" autoComplete="name" value={account.full_name} onChange={update("full_name")} placeholder="e.g. Amina Wanjiku" className="field" /></FormField>
         <FormField label="Email address"><input required type="email" autoComplete="email" value={account.email} onChange={update("email")} placeholder="you@example.com" className="field" /></FormField>
@@ -1100,6 +1192,31 @@ function SignInPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
+  async function signInWithGoogle(credential) {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch(apiUrl("/api/auth/google"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: jsonBody({ credential }),
+      });
+      const payload = await readResponse(response);
+      signIn(payload);
+      const destination = getPostSignInPath(payload.user, location.state?.from);
+      if (!payload.user.phone_verified_at) {
+        navigate("/verify-phone", { replace: true, state: { from: destination } });
+      } else {
+        navigate(destination, { replace: true });
+      }
+    } catch (loginError) {
+      setError(loginError.message || "We couldn't sign you in with Google. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function submit(event) {
     event.preventDefault();
     setError("");
@@ -1142,6 +1259,10 @@ function SignInPage() {
           <p className="mt-2 text-sm leading-6 text-muted">Pick up right where you left off.</p>
           {error && <p role="alert" className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</p>}
           {notice && <p role="status" className="mt-5 rounded-xl border border-[#d8e9dc] bg-[#f1f8f3] px-4 py-3 text-sm text-accent">{notice}</p>}
+          <div className="mt-6">
+            <GoogleSignInButton onCredential={signInWithGoogle} disabled={busy} />
+            <div className="my-5 flex items-center gap-3 text-xs text-muted"><span className="h-px flex-1 bg-line" />or sign in with email<span className="h-px flex-1 bg-line" /></div>
+          </div>
           <form onSubmit={submit} className="mt-6 space-y-4">
             <label className="block">
               <span className="mb-2 block text-xs font-bold text-ink">Email address</span>
@@ -1207,9 +1328,10 @@ function PhoneVerificationPage() {
   const [error, setError] = useState("");
   const [requested, setRequested] = useState(false);
   const [seconds, setSeconds] = useState(0);
+  const [phone, setPhone] = useState(user?.phone || "254");
 
   useEffect(() => {
-    if (!isSignedIn || user?.phone_verified_at) return;
+    if (!isSignedIn || user?.phone_verified_at || !user?.phone) return;
     let active = true;
     setBusy(true);
     request("/api/auth/verify/request", { method: "POST", body: jsonBody({ channel: "phone" }) })
@@ -1222,7 +1344,7 @@ function PhoneVerificationPage() {
       .catch((requestError) => { if (active) setError(requestError.message); })
       .finally(() => { if (active) setBusy(false); });
     return () => { active = false; };
-  }, [isSignedIn, user?.phone_verified_at, request]);
+  }, [isSignedIn, user?.phone, user?.phone_verified_at, request]);
 
   useEffect(() => {
     if (seconds <= 0) return undefined;
@@ -1242,6 +1364,23 @@ function PhoneVerificationPage() {
       setSeconds(30);
     } catch (requestError) {
       setError(requestError.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function savePhone(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const updatedUser = await request("/api/auth/phone", {
+        method: "POST",
+        body: jsonBody({ phone }),
+      });
+      signIn({ ...tokens, user: updatedUser });
+    } catch (phoneError) {
+      setError(phoneError.message || "We couldn't save your phone number. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -1275,22 +1414,33 @@ function PhoneVerificationPage() {
         <div className="w-full max-w-md rounded-[2rem] border border-line bg-white p-6 shadow-card sm:p-9">
           <Logo />
           {error && <p role="alert" className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</p>}
-          <form onSubmit={confirmCode} className="mt-8">
+          <div className="mt-8">
             <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#e7f4eb] text-accent"><ShieldCheck size={22} /></span>
             <p className="eyebrow mt-5">One quick check</p>
             <h1 className="mt-2 text-2xl font-black tracking-tight text-ink">Verify your phone</h1>
-            <p className="mt-2 text-sm leading-6 text-muted">We sent a six-digit code to <span className="font-bold text-ink">{user?.phone}</span>.</p>
-            <p className="mt-4 rounded-xl bg-[#f8f6ed] px-4 py-3 text-xs leading-5 text-[#796b47]">In demo mode the code appears in the server log.</p>
-            <label className="mt-6 block text-xs font-bold text-ink" htmlFor="phone-code">Verification code</label>
-            <input id="phone-code" required inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength="6" value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000" className="field mt-2 text-center text-2xl font-bold tracking-[.45em]" />
-            <button disabled={busy || code.length !== 6} className="btn-primary mt-5 w-full">{busy ? <Spinner /> : "Verify phone"} <ArrowRight size={16} /></button>
-            <div className="mt-4 text-center text-sm text-muted">
-              {requested ? "Didn't get a code?" : "Requesting your code…"}{" "}
-              <button type="button" disabled={busy || seconds > 0} onClick={requestCode} className="font-bold text-accent disabled:cursor-not-allowed disabled:text-[#a3ada6]">
-                {seconds > 0 ? `Resend in 0:${String(seconds).padStart(2, "0")}` : "Resend code"}
-              </button>
-            </div>
-          </form>
+            {!user?.phone ? (
+              <form onSubmit={savePhone} className="mt-6">
+                <p className="text-sm leading-6 text-muted">Add your phone number before we send a verification code.</p>
+                <label className="mt-5 block text-xs font-bold text-ink" htmlFor="phone-number">Phone number</label>
+                <input id="phone-number" required inputMode="numeric" autoComplete="tel" pattern="254[17][0-9]{8}" maxLength="12" value={phone} onChange={(event) => setPhone(event.target.value.replace(/\D/g, "").slice(0, 12))} placeholder="254712345678" className="field mt-2" />
+                <button disabled={busy || !/^254[17]\d{8}$/.test(phone)} className="btn-primary mt-5 w-full">{busy ? <Spinner /> : "Continue"} <ArrowRight size={16} /></button>
+              </form>
+            ) : (
+              <form onSubmit={confirmCode} className="mt-6">
+                <p className="mt-2 text-sm leading-6 text-muted">We sent a six-digit code to <span className="font-bold text-ink">{user.phone}</span>.</p>
+                <p className="mt-4 rounded-xl bg-[#f8f6ed] px-4 py-3 text-xs leading-5 text-[#796b47]">In demo mode the code appears in the server log.</p>
+                <label className="mt-6 block text-xs font-bold text-ink" htmlFor="phone-code">Verification code</label>
+                <input id="phone-code" required inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength="6" value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000" className="field mt-2 text-center text-2xl font-bold tracking-[.45em]" />
+                <button disabled={busy || code.length !== 6} className="btn-primary mt-5 w-full">{busy ? <Spinner /> : "Verify phone"} <ArrowRight size={16} /></button>
+                <div className="mt-4 text-center text-sm text-muted">
+                  {requested ? "Didn't get a code?" : "Requesting your code…"}{" "}
+                  <button type="button" disabled={busy || seconds > 0} onClick={requestCode} className="font-bold text-accent disabled:cursor-not-allowed disabled:text-[#a3ada6]">
+                    {seconds > 0 ? `Resend in 0:${String(seconds).padStart(2, "0")}` : "Resend code"}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
         </div>
       </main>
       <Footer />

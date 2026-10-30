@@ -32,6 +32,21 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=128)
 
 
+class GoogleLoginRequest(BaseModel):
+    credential: str = Field(min_length=1)
+
+
+class PhoneUpdateRequest(BaseModel):
+    phone: str
+
+    @field_validator("phone")
+    @classmethod
+    def validate_kenyan_phone(cls, value: str) -> str:
+        if len(value) != 12 or not value.startswith("254") or value[3] not in "17" or not value[3:].isdigit():
+            raise ValueError("Phone must use Kenyan international format, for example 254712345678")
+        return value
+
+
 class RefreshRequest(BaseModel):
     refresh_token: str
 
@@ -53,7 +68,7 @@ class UserResponse(BaseModel):
     id: int
     full_name: str
     email: EmailStr
-    phone: str
+    phone: str | None
     role: UserRole
     is_active: bool
     created_at: datetime

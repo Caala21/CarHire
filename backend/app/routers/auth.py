@@ -7,6 +7,8 @@ from app.core.errors import AppError
 from app.models import User
 from app.schemas.auth import (
     LoginRequest,
+    GoogleLoginRequest,
+    PhoneUpdateRequest,
     RefreshRequest,
     RegisterRequest,
     TokenResponse,
@@ -15,7 +17,14 @@ from app.schemas.auth import (
     VerificationRequest,
     VerificationResponse,
 )
-from app.services.auth import authenticate_user, create_token, decode_token, register_user
+from app.services.auth import (
+    authenticate_google_user,
+    authenticate_user,
+    create_token,
+    decode_token,
+    register_user,
+    update_user_phone,
+)
 from app.services.verification import confirm_verification, request_verification
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -65,6 +74,20 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> TokenRe
 @router.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
     return token_response(authenticate_user(db, str(payload.email), payload.password))
+
+
+@router.post("/google", response_model=TokenResponse)
+def google_login(payload: GoogleLoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
+    return token_response(authenticate_google_user(db, payload.credential))
+
+
+@router.post("/phone", response_model=UserResponse)
+def update_phone(
+    payload: PhoneUpdateRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> UserResponse:
+    return UserResponse.model_validate(update_user_phone(db, user, payload.phone))
 
 
 @router.post("/token", response_model=TokenResponse)

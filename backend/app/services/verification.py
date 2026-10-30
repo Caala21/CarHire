@@ -36,6 +36,8 @@ def request_verification(
     )
     if verified_at is not None:
         raise AppError(409, "already_verified", f"{channel.value.capitalize()} is already verified")
+    if channel is VerificationChannel.PHONE and not user.phone:
+        raise AppError(409, "phone_required", "Add a phone number before requesting verification")
 
     now = datetime.now(timezone.utc)
     db.scalar(select(User.id).where(User.id == user.id).with_for_update())

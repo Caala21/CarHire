@@ -13,7 +13,7 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     full_name: Mapped[str] = mapped_column(String(160))
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
-    phone: Mapped[str] = mapped_column(String(12))
+    phone: Mapped[str | None] = mapped_column(String(12))
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[Role] = mapped_column(
         Enum(Role, name="user_role", native_enum=False, values_callable=lambda enum: [item.value for item in enum]),

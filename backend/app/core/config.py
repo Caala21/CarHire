@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     app_name: str = "CarHire API"
     database_url: str = "postgresql+psycopg://carhire:carhire@localhost:5432/carhire"
     jwt_secret_key: str = "development-only-change-this-secret-before-deploying"
+    google_client_id: str | None = None
     access_token_minutes: int = 15
     refresh_token_days: int = 30
     cors_origins: str = "http://localhost:5173"
