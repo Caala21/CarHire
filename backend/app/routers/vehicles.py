@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 from typing import Annotated, Literal
 
@@ -10,6 +11,7 @@ from app.core.database import get_db
 from app.core.errors import AppError
 from app.models import OwnerProfile, Role, StoredFile, User, Vehicle, VehicleApprovalStatus
 from app.routers.auth import current_user
+from app.schemas.bookings import AvailabilityRange, AvailabilityResponse
 from app.schemas.fleet import (
     FileUploadResponse,
     VehicleCreateRequest,
@@ -17,6 +19,7 @@ from app.schemas.fleet import (
     VehiclePatchRequest,
     VehicleResponse,
 )
+from app.services.bookings import list_vehicle_bookings
 from app.services.file_records import persist_upload
 from app.services.fleet import (
     create_vehicle,
@@ -100,6 +103,31 @@ def get_public_vehicle(vehicle_id: int, db: Session = Depends(get_db)) -> Vehicl
     if not vehicle_is_public(db, vehicle):
         raise AppError(404, "vehicle_not_found", "Vehicle was not found")
     return VehicleResponse.model_validate(vehicle)
+
+
+@router.get("/{vehicle_id}/availability", response_model=AvailabilityResponse)
+def vehicle_availability(
+    vehicle_id: int,
+    from_date: Annotated[date, Query(alias="from")],
+    to_date: Annotated[date, Query(alias="to")],
+    db: Session = Depends(get_db),
+) -> AvailabilityResponse:
+    vehicle = _get_vehicle(db, vehicle_id)
+    if not vehicle_is_public(db, vehicle):
+        raise AppError(404, "vehicle_not_found", "Vehicle was not found")
+    if to_date <= from_date:
+        raise AppError(422, "invalid_date_range", "The end of the availability range must be after its start")
+    bookings = list_vehicle_bookings(db, vehicle_id, from_date, to_date)
+    return AvailabilityResponse(
+        vehicle_id=vehicle_id,
+        blocked_ranges=[
+            AvailabilityRange(
+                start_date=max(booking.start_date, from_date),
+                end_date=min(booking.end_date, to_date),
+            )
+            for booking in bookings
+        ],
+    )
 
 
 @router.patch("/{vehicle_id}", response_model=VehicleResponse)

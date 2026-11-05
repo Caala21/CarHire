@@ -25,8 +25,10 @@ from app.schemas.fleet import (
     RejectionRequest,
     VehicleResponse,
 )
+from app.schemas.bookings import BookingResponse
 from app.services.fleet import review_owner, review_vehicle
 from app.services.expiry import check_vehicle_expiry, list_expiring_vehicles
+from app.services.bookings import expire_pending_bookings, list_all_bookings
 from app.services.storage import storage
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -36,6 +38,7 @@ api_router = APIRouter(prefix="/admin", tags=["admin"])
 class ExpiryCheckResponse(BaseModel):
     suspended_count: int
     vehicle_ids: list[int]
+    expired_booking_count: int = 0
 
 
 def _owner_response(profile: OwnerProfile) -> OwnerReviewResponse:
@@ -271,7 +274,23 @@ def run_expiry_check(
     db: Session = Depends(get_db),
 ) -> ExpiryCheckResponse:
     vehicle_ids = check_vehicle_expiry(db, actor_id=actor.id)
-    return ExpiryCheckResponse(suspended_count=len(vehicle_ids), vehicle_ids=vehicle_ids)
+    expired_booking_count = expire_pending_bookings(db)
+    return ExpiryCheckResponse(
+        suspended_count=len(vehicle_ids),
+        vehicle_ids=vehicle_ids,
+        expired_booking_count=expired_booking_count,
+    )
+
+
+@api_router.get("/bookings", response_model=list[BookingResponse])
+def list_bookings(
+    _: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+) -> list[BookingResponse]:
+    return [
+        BookingResponse.model_validate(booking)
+        for booking in list_all_bookings(db)
+    ]
 
 
 @api_router.get("/vehicles/expiring", response_model=list[AdminVehicleResponse])

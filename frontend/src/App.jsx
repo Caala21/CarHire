@@ -35,6 +35,7 @@ import {
 import { useAuth } from "./auth.jsx";
 import { apiUrl, jsonBody, readResponse } from "./lib/api.js";
 import { AdminRoute, DemoPage } from "./admin.jsx";
+import { BookingWidget, MyBookingsPage } from "./bookings.jsx";
 
 const fallbackPhoto =
   "https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1200&q=85";
@@ -157,6 +158,7 @@ function SiteHeader() {
               {menuOpen && (
                 <div role="menu" className="absolute right-0 top-full z-30 mt-2 grid min-w-48 gap-1 rounded-2xl border border-line bg-white p-2 shadow-card">
                   <Link role="menuitem" to="/owner" onClick={() => setMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-canvas">My cars</Link>
+                  <Link role="menuitem" to="/bookings" onClick={() => setMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-canvas">My bookings</Link>
                   {user?.role === "admin" && <Link role="menuitem" to="/admin" onClick={() => setMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-canvas">Admin</Link>}
                   <button role="menuitem" onClick={handleSignOut} className="rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-red-700 hover:bg-red-50">Sign out</button>
                 </div>
@@ -187,6 +189,7 @@ function SiteHeader() {
             <>
               <p className="px-3 pt-2 text-xs font-bold uppercase tracking-wider text-muted">{user?.full_name}</p>
               <Link to="/owner" onClick={() => setMenuOpen(false)} className="rounded-xl px-3 py-3 text-sm font-semibold">My cars</Link>
+              <Link to="/bookings" onClick={() => setMenuOpen(false)} className="rounded-xl px-3 py-3 text-sm font-semibold">My bookings</Link>
               {user?.role === "admin" && <Link to="/admin" onClick={() => setMenuOpen(false)} className="rounded-xl px-3 py-3 text-sm font-semibold">Admin</Link>}
               <button onClick={handleSignOut} className="rounded-xl px-3 py-3 text-left text-sm font-semibold text-red-700">Sign out</button>
             </>
@@ -603,8 +606,7 @@ function VehicleDetailPage() {
             <p className="mt-1 text-3xl font-black tracking-tight text-ink">KES {formatPrice(vehicle.daily_rate)}<span className="text-sm font-semibold text-muted"> / day</span></p>
             <div className="my-6 border-t border-line" />
             <div className="flex justify-between text-sm"><span className="text-muted">Refundable deposit</span><span className="font-bold text-ink">KES {formatPrice(vehicle.deposit_amount)}</span></div>
-            <button disabled className="mt-6 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#e6ece8] px-5 text-sm font-extrabold text-[#77827b]">Book this car <ArrowRight size={16} /></button>
-            <p className="mt-3 flex items-center justify-center gap-1.5 text-xs text-muted"><Clock3 size={14} /> Booking is coming soon</p>
+            <BookingWidget vehicle={vehicle} />
             <div className="mt-6 rounded-2xl bg-canvas p-4 text-sm leading-6 text-muted"><ShieldCheck size={17} className="mb-2 text-accent" />Every public listing has current insurance and vehicle inspection details.</div>
           </aside>
         </div>
@@ -1574,6 +1576,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/vehicles/:id" element={<VehicleDetailPage />} />
+        <Route path="/bookings" element={<MyBookingsPage />} />
         <Route path="/signup" element={<SignupFlow />} />
         <Route path="/signin" element={<SignInPage />} />
         <Route path="/login" element={<Navigate to="/signin" replace />} />

@@ -7,13 +7,15 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.errors import AppError
 from app.models import OwnerProfile, User, Vehicle
-from app.routers.auth import current_user, require_verified_phone
+from app.routers.auth import current_user, require_role, require_verified_phone
 from app.schemas.fleet import (
     FileUploadResponse,
     OwnerApplicationRequest,
     OwnerApplicationResponse,
     VehicleResponse,
 )
+from app.schemas.bookings import BookingResponse
+from app.services.bookings import list_owner_bookings
 from app.services.file_records import persist_upload
 from app.services.fleet import apply_as_owner
 
@@ -52,6 +54,17 @@ def my_vehicles(
         select(Vehicle).where(Vehicle.owner_id == user.id).order_by(Vehicle.created_at.desc())
     ).all()
     return [VehicleResponse.model_validate(vehicle) for vehicle in vehicles]
+
+
+@router.get("/me/bookings", response_model=list[BookingResponse])
+def my_vehicle_bookings(
+    user: User = Depends(require_role("owner")),
+    db: Session = Depends(get_db),
+) -> list[BookingResponse]:
+    return [
+        BookingResponse.model_validate(booking)
+        for booking in list_owner_bookings(db, user.id)
+    ]
 
 
 @router.post("/me/documents", response_model=FileUploadResponse, status_code=201)

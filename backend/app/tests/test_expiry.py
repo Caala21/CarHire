@@ -183,7 +183,9 @@ def test_expiry_job_cli_runs_service_and_prints_summary(client, monkeypatch, cap
 
         monkeypatch.setattr(check_expiry, "SessionLocal", fake_session)
         check_expiry.main()
-        assert capsys.readouterr().out == "Suspended 1 expired vehicle(s).\n"
+        assert capsys.readouterr().out == (
+            "Suspended 1 expired vehicle(s); expired 0 unpaid booking hold(s).\n"
+        )
         db.expire_all()
         audit = db.query(AuditLog).filter_by(target_type="vehicle").one()
         assert audit.actor_id is None
