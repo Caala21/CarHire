@@ -16,6 +16,7 @@ from app.models.payment import Payment
 from app.models.stored_file import StoredFile
 from app.models.user import CustomerProfile, OwnerProfile, User
 from app.models.vehicle import Vehicle
+from app.models.vehicle_block import VehicleBlock
 from app.models.verification import VerificationCode
 
 __all__ = [
@@ -33,6 +34,7 @@ __all__ = [
     "Role",
     "User",
     "Vehicle",
+    "VehicleBlock",
     "VehicleApprovalStatus",
     "VehicleStatus",
     "VerificationChannel",

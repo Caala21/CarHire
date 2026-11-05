@@ -35,7 +35,11 @@ import {
 import { useAuth } from "./auth.jsx";
 import { apiUrl, jsonBody, readResponse } from "./lib/api.js";
 import { AdminRoute, DemoPage } from "./admin.jsx";
-import { BookingWidget, MyBookingsPage } from "./bookings.jsx";
+import {
+  BookingWidget,
+  MyBookingsPage,
+  OwnerAvailabilityPage,
+} from "./bookings.jsx";
 
 const fallbackPhoto =
   "https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1200&q=85";
@@ -46,6 +50,10 @@ const samplePhotos = [
 ];
 const formatPrice = (amount) =>
   new Intl.NumberFormat("en-KE", { maximumFractionDigits: 0 }).format(Number(amount || 0));
+const todayDate = () => {
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+};
 const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
 function GoogleSignInButton({ onCredential, disabled }) {
@@ -158,6 +166,7 @@ function SiteHeader() {
               {menuOpen && (
                 <div role="menu" className="absolute right-0 top-full z-30 mt-2 grid min-w-48 gap-1 rounded-2xl border border-line bg-white p-2 shadow-card">
                   <Link role="menuitem" to="/owner" onClick={() => setMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-canvas">My cars</Link>
+                  {user?.role === "owner" && <Link role="menuitem" to="/owner/availability" onClick={() => setMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-canvas">Block dates</Link>}
                   <Link role="menuitem" to="/bookings" onClick={() => setMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-canvas">My bookings</Link>
                   {user?.role === "admin" && <Link role="menuitem" to="/admin" onClick={() => setMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold hover:bg-canvas">Admin</Link>}
                   <button role="menuitem" onClick={handleSignOut} className="rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-red-700 hover:bg-red-50">Sign out</button>
@@ -189,6 +198,7 @@ function SiteHeader() {
             <>
               <p className="px-3 pt-2 text-xs font-bold uppercase tracking-wider text-muted">{user?.full_name}</p>
               <Link to="/owner" onClick={() => setMenuOpen(false)} className="rounded-xl px-3 py-3 text-sm font-semibold">My cars</Link>
+              {user?.role === "owner" && <Link to="/owner/availability" onClick={() => setMenuOpen(false)} className="rounded-xl px-3 py-3 text-sm font-semibold">Block dates</Link>}
               <Link to="/bookings" onClick={() => setMenuOpen(false)} className="rounded-xl px-3 py-3 text-sm font-semibold">My bookings</Link>
               {user?.role === "admin" && <Link to="/admin" onClick={() => setMenuOpen(false)} className="rounded-xl px-3 py-3 text-sm font-semibold">Admin</Link>}
               <button onClick={handleSignOut} className="rounded-xl px-3 py-3 text-left text-sm font-semibold text-red-700">Sign out</button>
@@ -282,7 +292,13 @@ function LandingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [location, setLocation] = useState(searchParams.get("location") || "");
-  const [filters, setFilters] = useState(searchParams.get("location") || "");
+  const [filters, setFilters] = useState({
+    location: searchParams.get("location") || "",
+    availableFrom: searchParams.get("available_from") || "",
+    availableTo: searchParams.get("available_to") || "",
+  });
+  const [pickupDate, setPickupDate] = useState(searchParams.get("available_from") || "");
+  const [returnDate, setReturnDate] = useState(searchParams.get("available_to") || "");
   const [assistantQuery, setAssistantQuery] = useState("");
   const [assistantMessage, setAssistantMessage] = useState("");
   const [assistantResult, setAssistantResult] = useState(null);
@@ -294,7 +310,11 @@ function LandingPage() {
     setError("");
     try {
       const query = new URLSearchParams({ limit: "12" });
-      if (filters.trim()) query.set("location", filters.trim());
+      if (filters.location.trim()) query.set("location", filters.location.trim());
+      if (filters.availableFrom && filters.availableTo) {
+        query.set("available_from", filters.availableFrom);
+        query.set("available_to", filters.availableTo);
+      }
       const page = await request(`/api/vehicles?${query.toString()}`);
       setVehicles(page.items);
       setTotal(page.total);
@@ -311,9 +331,26 @@ function LandingPage() {
 
   function search(event) {
     event.preventDefault();
+    if (Boolean(pickupDate) !== Boolean(returnDate)) {
+      setError("Choose both pick-up and return dates to filter by availability.");
+      return;
+    }
+    if (pickupDate && returnDate <= pickupDate) {
+      setError("Return date must be after the pick-up date.");
+      return;
+    }
     const value = location.trim();
-    setFilters(value);
-    setSearchParams(value ? { location: value } : {});
+    const nextFilters = {
+      location: value,
+      availableFrom: pickupDate,
+      availableTo: returnDate,
+    };
+    setFilters(nextFilters);
+    const params = {};
+    if (value) params.location = value;
+    if (pickupDate) params.available_from = pickupDate;
+    if (returnDate) params.available_to = returnDate;
+    setSearchParams(params);
     document.getElementById("cars")?.scrollIntoView({ behavior: "smooth" });
   }
 
@@ -353,16 +390,23 @@ function LandingPage() {
               <p className="mt-5 max-w-lg text-base leading-7 text-muted sm:text-lg">
                 Find a ride for the weekend, or turn the car you love into a little extra income. Easy, trusted, and all in one place.
               </p>
-              <form onSubmit={search} className="mt-8 flex flex-col gap-3 rounded-[1.35rem] bg-white p-3 shadow-card sm:flex-row sm:items-center">
-                <label className="flex min-w-0 flex-1 items-center gap-3 px-2">
+              <form onSubmit={search} className="mt-8 grid gap-3 rounded-[1.35rem] bg-white p-3 shadow-card sm:grid-cols-2 lg:grid-cols-[1.3fr_1fr_1fr_auto] lg:items-end">
+                <label className="flex min-w-0 items-center gap-3 px-2">
                   <MapPin className="shrink-0 text-accent" size={20} />
                   <span className="min-w-0 flex-1">
                     <span className="block text-[11px] font-bold uppercase tracking-[.12em] text-muted">Pick-up location</span>
                     <input value={location} onChange={(event) => setLocation(event.target.value)} placeholder="Where are you headed?" className="w-full border-0 bg-transparent py-1 text-sm font-semibold text-ink outline-none placeholder:font-normal placeholder:text-[#a3ada6]" />
                   </span>
-                  <ChevronDown size={16} className="text-muted" />
                 </label>
-                <button className="btn-primary min-h-12 sm:min-w-36" type="submit">Find a car <ArrowRight size={17} /></button>
+                <label className="min-w-0 px-2">
+                  <span className="block text-[11px] font-bold uppercase tracking-[.12em] text-muted">Pick-up</span>
+                  <input aria-label="Pick-up date" type="date" min={todayDate()} value={pickupDate} onChange={(event) => setPickupDate(event.target.value)} className="w-full border-0 bg-transparent py-1 text-sm font-semibold text-ink outline-none" />
+                </label>
+                <label className="min-w-0 px-2">
+                  <span className="block text-[11px] font-bold uppercase tracking-[.12em] text-muted">Return</span>
+                  <input aria-label="Return date" type="date" min={pickupDate || todayDate()} value={returnDate} onChange={(event) => setReturnDate(event.target.value)} className="w-full border-0 bg-transparent py-1 text-sm font-semibold text-ink outline-none" />
+                </label>
+                <button className="btn-primary min-h-12 sm:col-span-2 lg:col-span-1" type="submit">Find a car <ArrowRight size={17} /></button>
               </form>
               <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs font-semibold text-muted">
                 <span className="flex items-center gap-1.5"><ShieldCheck size={15} className="text-accent" /> Trusted local owners</span>
@@ -484,7 +528,7 @@ function LandingPage() {
               <div>
                 <p className="eyebrow">Handpicked for you</p>
                 <h2 className="section-title mt-3">Find your next <span className="text-accent">ride.</span></h2>
-                <p className="mt-2 text-sm text-muted">{filters ? `Showing cars near “${filters}”` : "A few good reasons to get out and go."}</p>
+                <p className="mt-2 text-sm text-muted">{filters.location ? `Showing cars near “${filters.location}”` : filters.availableFrom ? "Showing cars available for your dates." : "A few good reasons to get out and go."}</p>
               </div>
               <Link to="/signup?intent=list" className="btn-secondary w-fit">List your car <ArrowRight size={16} /></Link>
             </div>
@@ -500,8 +544,8 @@ function LandingPage() {
               <div className="rounded-3xl border border-dashed border-line bg-canvas px-6 py-12 text-center">
                 <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-white text-accent shadow-soft"><CarFront size={25} /></span>
                 <h3 className="mt-4 text-lg font-extrabold text-ink">No cars found just yet</h3>
-                <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted">{filters ? "Try another location, or clear your search to see all available cars." : "We’re getting the keys ready. Check back soon, or be the first to list a car."}</p>
-                {filters ? <button className="btn-secondary mx-auto mt-5" onClick={() => { setLocation(""); setFilters(""); setSearchParams({}); }}>Clear search</button> : <Link to="/signup?intent=list" className="btn-primary mx-auto mt-5">List your car <ArrowRight size={16} /></Link>}
+                <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted">{filters.location || filters.availableFrom ? "Try different dates or location, or clear your search to see all available cars." : "We’re getting the keys ready. Check back soon, or be the first to list a car."}</p>
+                {filters.location || filters.availableFrom ? <button className="btn-secondary mx-auto mt-5" onClick={() => { setLocation(""); setPickupDate(""); setReturnDate(""); setFilters({ location: "", availableFrom: "", availableTo: "" }); setSearchParams({}); }}>Clear search</button> : <Link to="/signup?intent=list" className="btn-primary mx-auto mt-5">List your car <ArrowRight size={16} /></Link>}
               </div>
             ) : null}
           </div>
@@ -1485,6 +1529,11 @@ function OwnerDashboardPage() {
         <p className="eyebrow">Owner dashboard</p>
         <h1 className="mt-2 text-3xl font-black tracking-tight text-ink">My cars</h1>
         <p className="mt-2 text-sm text-muted">Welcome back, {user?.full_name}.</p>
+        {user?.role === "owner" && (
+          <Link to="/owner/availability" className="btn-secondary mt-5">
+            Manage blocked dates <CalendarDays size={16} />
+          </Link>
+        )}
         {loading && <div className="mt-8 rounded-2xl border border-line bg-white p-6 text-sm text-muted"><Spinner /> <span className="ml-2">Loading your cars…</span></div>}
         {!loading && user?.role !== "owner" && (
           <div className="mt-8 rounded-2xl border border-line bg-white p-6 text-sm leading-6 text-muted">
@@ -1582,6 +1631,7 @@ export default function App() {
         <Route path="/login" element={<Navigate to="/signin" replace />} />
         <Route path="/verify-phone" element={<PhoneVerificationPage />} />
         <Route path="/owner" element={<OwnerDashboardPage />} />
+        <Route path="/owner/availability" element={<OwnerAvailabilityPage />} />
         <Route path="/admin/*" element={<AdminRoute />} />
         <Route path="/demo" element={<DemoPage />} />
         <Route path="*" element={<NotFound />} />

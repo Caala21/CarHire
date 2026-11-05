@@ -12,8 +12,9 @@ from app.models import (
     OwnerProfile,
     User,
     Vehicle,
+    VehicleBlock,
 )
-from app.schemas.bookings import BookingCreateRequest
+from app.schemas.bookings import BookingCreateRequest, VehicleBlockCreateRequest
 from app.services.fleet import vehicle_is_public
 
 ACTIVE_BOOKING_STATUSES = (
@@ -60,6 +61,23 @@ def _overlapping_booking(
     ) is not None
 
 
+def _overlapping_block(
+    db: Session,
+    vehicle_id: int,
+    start_date: date,
+    end_date: date,
+) -> bool:
+    return db.scalar(
+        select(VehicleBlock.id)
+        .where(
+            VehicleBlock.vehicle_id == vehicle_id,
+            VehicleBlock.start_date < end_date,
+            VehicleBlock.end_date > start_date,
+        )
+        .limit(1)
+    ) is not None
+
+
 def _is_overlap_constraint_error(error: IntegrityError) -> bool:
     original = error.orig
     sqlstate = getattr(original, "sqlstate", None) or getattr(original, "pgcode", None)
@@ -74,15 +92,19 @@ def create_booking(
     payload: BookingCreateRequest,
 ) -> Booking:
     expire_pending_bookings(db)
-    vehicle = db.get(Vehicle, payload.vehicle_id)
+    vehicle = db.scalar(
+        select(Vehicle).where(Vehicle.id == payload.vehicle_id).with_for_update()
+    )
     if vehicle is None or not vehicle_is_public(db, vehicle):
         raise AppError(404, "vehicle_not_found", "Vehicle was not found")
 
-    if _overlapping_booking(db, vehicle.id, payload.start_date, payload.end_date):
+    if _overlapping_booking(db, vehicle.id, payload.start_date, payload.end_date) or _overlapping_block(
+        db, vehicle.id, payload.start_date, payload.end_date
+    ):
         raise AppError(
             409,
             "vehicle_unavailable",
-            "This vehicle is already booked for some or all of those dates",
+            "This vehicle is unavailable for some or all of those dates",
         )
 
     number_of_days = (payload.end_date - payload.start_date).days
@@ -182,3 +204,50 @@ def list_vehicle_bookings(
         )
         .order_by(Booking.start_date, Booking.id)
     ).all()
+
+
+def list_vehicle_blocks(
+    db: Session,
+    vehicle_id: int,
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> list[VehicleBlock]:
+    query = select(VehicleBlock).where(VehicleBlock.vehicle_id == vehicle_id)
+    if start_date is not None and end_date is not None:
+        query = query.where(
+            VehicleBlock.start_date < end_date,
+            VehicleBlock.end_date > start_date,
+        )
+    return db.scalars(query.order_by(VehicleBlock.start_date, VehicleBlock.id)).all()
+
+
+def create_vehicle_block(
+    db: Session,
+    vehicle: Vehicle,
+    user: User,
+    payload: VehicleBlockCreateRequest,
+) -> VehicleBlock:
+    db.refresh(vehicle, with_for_update=True)
+    expire_pending_bookings(db)
+    if _overlapping_booking(db, vehicle.id, payload.start_date, payload.end_date):
+        raise AppError(
+            409,
+            "booking_conflict",
+            "The requested dates overlap an active booking",
+        )
+    block = VehicleBlock(
+        vehicle_id=vehicle.id,
+        start_date=payload.start_date,
+        end_date=payload.end_date,
+        reason=payload.reason.strip() if payload.reason else None,
+        created_by=user.id,
+    )
+    db.add(block)
+    db.commit()
+    db.refresh(block)
+    return block
+
+
+def delete_vehicle_block(db: Session, block: VehicleBlock) -> None:
+    db.delete(block)
+    db.commit()

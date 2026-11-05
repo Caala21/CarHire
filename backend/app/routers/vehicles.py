@@ -9,9 +9,24 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.errors import AppError
-from app.models import OwnerProfile, Role, StoredFile, User, Vehicle, VehicleApprovalStatus
+from app.models import (
+    Booking,
+    BookingStatus,
+    OwnerProfile,
+    Role,
+    StoredFile,
+    User,
+    Vehicle,
+    VehicleApprovalStatus,
+    VehicleBlock,
+)
 from app.routers.auth import current_user
-from app.schemas.bookings import AvailabilityRange, AvailabilityResponse
+from app.schemas.bookings import (
+    AvailabilityRange,
+    AvailabilityResponse,
+    VehicleBlockCreateRequest,
+    VehicleBlockResponse,
+)
 from app.schemas.fleet import (
     FileUploadResponse,
     VehicleCreateRequest,
@@ -19,7 +34,13 @@ from app.schemas.fleet import (
     VehiclePatchRequest,
     VehicleResponse,
 )
-from app.services.bookings import list_vehicle_bookings
+from app.services.bookings import (
+    create_vehicle_block,
+    delete_vehicle_block,
+    expire_pending_bookings,
+    list_vehicle_blocks,
+    list_vehicle_bookings,
+)
 from app.services.file_records import persist_upload
 from app.services.fleet import (
     create_vehicle,
@@ -31,6 +52,11 @@ from app.services.storage import storage
 
 router = APIRouter(prefix="/vehicles", tags=["vehicles"])
 public_router = APIRouter(prefix="/public", tags=["public"])
+ACTIVE_BOOKING_STATUSES = (
+    BookingStatus.PENDING,
+    BookingStatus.CONFIRMED,
+    BookingStatus.ACTIVE,
+)
 
 
 def _get_vehicle(db: Session, vehicle_id: int) -> Vehicle:
@@ -50,6 +76,14 @@ def _can_manage_documents(db: Session, vehicle: Vehicle, user: User) -> None:
     raise AppError(403, "forbidden", "You can only manage documents for your own vehicles")
 
 
+def _can_manage_blocks(vehicle: Vehicle, user: User) -> None:
+    if user.role is Role.ADMIN:
+        return
+    if user.role is Role.OWNER and vehicle.owner_id == user.id:
+        return
+    raise AppError(403, "forbidden", "You can only manage availability for your own vehicles")
+
+
 @router.get("", response_model=VehiclePageResponse)
 def list_vehicles(
     make: str | None = None,
@@ -60,10 +94,18 @@ def list_vehicles(
     min_price: Decimal | None = Query(default=None, ge=0),
     max_price: Decimal | None = Query(default=None, ge=0),
     location: str | None = None,
+    available_from: date | None = None,
+    available_to: date | None = None,
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ) -> VehiclePageResponse:
+    if (available_from is None) != (available_to is None):
+        raise AppError(422, "invalid_date_range", "Both available_from and available_to are required")
+    if available_from is not None and available_to is not None:
+        if available_to <= available_from:
+            raise AppError(422, "invalid_date_range", "available_to must be after available_from")
+        expire_pending_bookings(db)
     query = public_vehicle_query(
         make=make,
         model=model,
@@ -74,6 +116,20 @@ def list_vehicles(
         max_price=max_price,
         location=location,
     )
+    if available_from is not None and available_to is not None:
+        query = query.where(
+            ~select(Booking.id).where(
+                Booking.vehicle_id == Vehicle.id,
+                Booking.status.in_(ACTIVE_BOOKING_STATUSES),
+                Booking.start_date < available_to,
+                Booking.end_date > available_from,
+            ).exists(),
+            ~select(VehicleBlock.id).where(
+                VehicleBlock.vehicle_id == Vehicle.id,
+                VehicleBlock.start_date < available_to,
+                VehicleBlock.end_date > available_from,
+            ).exists(),
+        )
     total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
     vehicles = db.scalars(
         query.order_by(Vehicle.created_at.desc(), Vehicle.id.desc())
@@ -118,16 +174,65 @@ def vehicle_availability(
     if to_date <= from_date:
         raise AppError(422, "invalid_date_range", "The end of the availability range must be after its start")
     bookings = list_vehicle_bookings(db, vehicle_id, from_date, to_date)
+    blocks = list_vehicle_blocks(db, vehicle_id, from_date, to_date)
     return AvailabilityResponse(
         vehicle_id=vehicle_id,
-        blocked_ranges=[
+        blocked_ranges=sorted([
             AvailabilityRange(
                 start_date=max(booking.start_date, from_date),
                 end_date=min(booking.end_date, to_date),
             )
             for booking in bookings
-        ],
+        ] + [
+            AvailabilityRange(
+                start_date=max(block.start_date, from_date),
+                end_date=min(block.end_date, to_date),
+            )
+            for block in blocks
+        ], key=lambda blocked_range: (blocked_range.start_date, blocked_range.end_date)),
     )
+
+
+@router.get("/{vehicle_id}/blocks", response_model=list[VehicleBlockResponse])
+def get_vehicle_blocks(
+    vehicle_id: int,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> list[VehicleBlockResponse]:
+    vehicle = _get_vehicle(db, vehicle_id)
+    _can_manage_blocks(vehicle, user)
+    return [
+        VehicleBlockResponse.model_validate(block)
+        for block in list_vehicle_blocks(db, vehicle_id)
+    ]
+
+
+@router.post("/{vehicle_id}/blocks", response_model=VehicleBlockResponse, status_code=201)
+def post_vehicle_block(
+    vehicle_id: int,
+    payload: VehicleBlockCreateRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> VehicleBlockResponse:
+    vehicle = _get_vehicle(db, vehicle_id)
+    _can_manage_blocks(vehicle, user)
+    block = create_vehicle_block(db, vehicle, user, payload)
+    return VehicleBlockResponse.model_validate(block)
+
+
+@router.delete("/{vehicle_id}/blocks/{block_id}", status_code=204)
+def remove_vehicle_block(
+    vehicle_id: int,
+    block_id: int,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    vehicle = _get_vehicle(db, vehicle_id)
+    _can_manage_blocks(vehicle, user)
+    block = db.get(VehicleBlock, block_id)
+    if block is None or block.vehicle_id != vehicle.id:
+        raise AppError(404, "vehicle_block_not_found", "Availability block was not found")
+    delete_vehicle_block(db, block)
 
 
 @router.patch("/{vehicle_id}", response_model=VehicleResponse)

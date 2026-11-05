@@ -55,3 +55,29 @@ class AvailabilityRange(BaseModel):
 class AvailabilityResponse(BaseModel):
     vehicle_id: int
     blocked_ranges: list[AvailabilityRange]
+
+
+class VehicleBlockCreateRequest(BaseModel):
+    start_date: date
+    end_date: date
+    reason: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_date_range(self) -> "VehicleBlockCreateRequest":
+        if self.start_date < date.today():
+            raise ValueError("start_date cannot be in the past")
+        if self.end_date <= self.start_date:
+            raise ValueError("end_date must be after start_date")
+        return self
+
+
+class VehicleBlockResponse(BaseModel):
+    id: int
+    vehicle_id: int
+    start_date: date
+    end_date: date
+    reason: str | None
+    created_by: int
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

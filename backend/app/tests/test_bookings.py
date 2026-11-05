@@ -79,6 +79,43 @@ def booking_payload(vehicle_id: int, start_offset: int = 3, end_offset: int = 5)
     }
 
 
+def create_owner(client, email: str):
+    headers, owner_id = register_customer(client, email)
+    generator = client.app.dependency_overrides[get_db]()
+    db = next(generator)
+    try:
+        owner = db.get(User, owner_id)
+        assert owner is not None
+        owner.role = Role.OWNER
+        db.add(
+            OwnerProfile(
+                user_id=owner_id,
+                national_id=f"NAT-{owner_id}-BLOCK",
+                kra_pin=f"A{owner_id:08d}Z",
+                payout_phone="254712345678",
+                verification_status=OwnerVerificationStatus.APPROVED,
+            )
+        )
+        db.commit()
+    finally:
+        generator.close()
+    return headers, owner_id
+
+
+def create_admin(client, email: str):
+    headers, admin_id = register_customer(client, email)
+    generator = client.app.dependency_overrides[get_db]()
+    db = next(generator)
+    try:
+        admin = db.get(User, admin_id)
+        assert admin is not None
+        admin.role = Role.ADMIN
+        db.commit()
+    finally:
+        generator.close()
+    return headers
+
+
 def test_booking_requires_verified_phone_and_valid_future_date_range(client):
     headers, _ = register_customer(client, "booking-unverified@example.com", verified=False)
     vehicle_id = create_public_vehicle(client)
@@ -365,3 +402,223 @@ def test_expired_unpaid_booking_is_released_during_availability_check(client):
         headers=headers,
     )
     assert replacement.status_code == 201
+
+
+def test_vehicle_blocks_are_scoped_listed_and_deletable(client):
+    owner_headers, owner_id = create_owner(client, "availability-owner@example.com")
+    outsider_headers, _ = register_customer(client, "availability-outsider@example.com")
+    vehicle_id = create_public_vehicle(client, owner_id=owner_id)
+    payload = {
+        "start_date": (date.today() + timedelta(days=10)).isoformat(),
+        "end_date": (date.today() + timedelta(days=13)).isoformat(),
+        "reason": "Personal use",
+    }
+
+    forbidden = client.post(
+        f"/api/vehicles/{vehicle_id}/blocks",
+        json=payload,
+        headers=outsider_headers,
+    )
+    assert forbidden.status_code == 403
+
+    created = client.post(
+        f"/api/vehicles/{vehicle_id}/blocks",
+        json=payload,
+        headers=owner_headers,
+    )
+    assert created.status_code == 201
+    block = created.json()
+    assert block["vehicle_id"] == vehicle_id
+    assert block["created_by"] == owner_id
+    assert block["reason"] == "Personal use"
+
+    public_availability = client.get(
+        f"/api/vehicles/{vehicle_id}/availability",
+        params={
+            "from": (date.today() + timedelta(days=8)).isoformat(),
+            "to": (date.today() + timedelta(days=15)).isoformat(),
+        },
+    )
+    assert public_availability.status_code == 200
+    assert public_availability.json()["blocked_ranges"] == [
+        {
+            "start_date": payload["start_date"],
+            "end_date": payload["end_date"],
+        }
+    ]
+    assert "created_by" not in public_availability.text
+    assert "reason" not in public_availability.text
+
+    listed = client.get(f"/api/vehicles/{vehicle_id}/blocks", headers=owner_headers)
+    assert listed.status_code == 200
+    assert listed.json() == [block]
+    assert client.get(
+        f"/api/vehicles/{vehicle_id}/blocks",
+        headers=outsider_headers,
+    ).status_code == 403
+
+    assert client.delete(
+        f"/api/vehicles/{vehicle_id}/blocks/{block['id']}",
+        headers=outsider_headers,
+    ).status_code == 403
+    deleted = client.delete(
+        f"/api/vehicles/{vehicle_id}/blocks/{block['id']}",
+        headers=owner_headers,
+    )
+    assert deleted.status_code == 204
+    assert client.get(
+        f"/api/vehicles/{vehicle_id}/blocks",
+        headers=owner_headers,
+    ).json() == []
+
+
+def test_admin_can_create_and_delete_vehicle_blocks(client):
+    admin_headers = create_admin(client, "availability-admin@example.com")
+    vehicle_id = create_public_vehicle(client)
+    created = client.post(
+        f"/api/vehicles/{vehicle_id}/blocks",
+        json={
+            "start_date": (date.today() + timedelta(days=20)).isoformat(),
+            "end_date": (date.today() + timedelta(days=22)).isoformat(),
+        },
+        headers=admin_headers,
+    )
+    assert created.status_code == 201
+    assert client.delete(
+        f"/api/vehicles/{vehicle_id}/blocks/{created.json()['id']}",
+        headers=admin_headers,
+    ).status_code == 204
+
+
+def test_blocks_reject_active_bookings_and_bookings_reject_blocks(client):
+    owner_headers, owner_id = create_owner(client, "availability-conflict@example.com")
+    vehicle_id = create_public_vehicle(client, owner_id=owner_id)
+    booking = client.post(
+        "/api/bookings",
+        json=booking_payload(vehicle_id, start_offset=10, end_offset=13),
+        headers=owner_headers,
+    )
+    assert booking.status_code == 201
+
+    overlapping_block = client.post(
+        f"/api/vehicles/{vehicle_id}/blocks",
+        json={
+            "start_date": (date.today() + timedelta(days=12)).isoformat(),
+            "end_date": (date.today() + timedelta(days=15)).isoformat(),
+            "reason": "Unavailable",
+        },
+        headers=owner_headers,
+    )
+    assert overlapping_block.status_code == 409
+    assert overlapping_block.json()["error"]["code"] == "booking_conflict"
+
+    blocked_range = {
+        "start_date": (date.today() + timedelta(days=16)).isoformat(),
+        "end_date": (date.today() + timedelta(days=18)).isoformat(),
+    }
+    created_block = client.post(
+        f"/api/vehicles/{vehicle_id}/blocks",
+        json=blocked_range,
+        headers=owner_headers,
+    )
+    assert created_block.status_code == 201
+    conflicting_booking = client.post(
+        "/api/bookings",
+        json={
+            "vehicle_id": vehicle_id,
+            **blocked_range,
+        },
+        headers=owner_headers,
+    )
+    assert conflicting_booking.status_code == 409
+    assert conflicting_booking.json()["error"]["code"] == "vehicle_unavailable"
+
+    availability = client.get(
+        f"/api/vehicles/{vehicle_id}/availability",
+        params={
+            "from": (date.today() + timedelta(days=8)).isoformat(),
+            "to": (date.today() + timedelta(days=20)).isoformat(),
+        },
+    )
+    assert availability.status_code == 200
+    assert availability.json()["blocked_ranges"] == [
+        {
+            "start_date": booking.json()["start_date"],
+            "end_date": booking.json()["end_date"],
+        },
+        {
+            "start_date": blocked_range["start_date"],
+            "end_date": blocked_range["end_date"],
+        },
+    ]
+
+
+def test_vehicle_search_filters_out_booked_and_blocked_dates(client):
+    customer_headers, _ = register_customer(client, "availability-search@example.com")
+    blocked_vehicle_id = create_public_vehicle(client)
+    booked_vehicle_id = create_public_vehicle(client)
+    available_vehicle_id = create_public_vehicle(client)
+    start_date = date.today() + timedelta(days=25)
+    end_date = date.today() + timedelta(days=28)
+    date_range = {
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+    }
+    admin_headers = create_admin(client, "availability-search-admin@example.com")
+    block = client.post(
+        f"/api/vehicles/{blocked_vehicle_id}/blocks",
+        json=date_range,
+        headers=admin_headers,
+    )
+    assert block.status_code == 201
+    booking = client.post(
+        "/api/bookings",
+        json={"vehicle_id": booked_vehicle_id, **date_range},
+        headers=customer_headers,
+    )
+    assert booking.status_code == 201
+
+    available = client.get(
+        "/api/vehicles",
+        params={
+            "available_from": start_date.isoformat(),
+            "available_to": end_date.isoformat(),
+        },
+    )
+    assert available.status_code == 200
+    assert [vehicle["id"] for vehicle in available.json()["items"]] == [available_vehicle_id]
+
+    assert client.get(
+        "/api/vehicles",
+        params={"available_from": start_date.isoformat()},
+    ).status_code == 422
+    assert client.get(
+        "/api/vehicles",
+        params={
+            "available_from": end_date.isoformat(),
+            "available_to": start_date.isoformat(),
+        },
+    ).status_code == 422
+
+
+def test_vehicle_block_dates_must_be_valid_future_ranges(client):
+    owner_headers, owner_id = create_owner(client, "availability-validation@example.com")
+    vehicle_id = create_public_vehicle(client, owner_id=owner_id)
+    past = client.post(
+        f"/api/vehicles/{vehicle_id}/blocks",
+        json={
+            "start_date": (date.today() - timedelta(days=1)).isoformat(),
+            "end_date": date.today().isoformat(),
+        },
+        headers=owner_headers,
+    )
+    assert past.status_code == 422
+    invalid = client.post(
+        f"/api/vehicles/{vehicle_id}/blocks",
+        json={
+            "start_date": (date.today() + timedelta(days=3)).isoformat(),
+            "end_date": (date.today() + timedelta(days=3)).isoformat(),
+        },
+        headers=owner_headers,
+    )
+    assert invalid.status_code == 422

@@ -37,4 +37,9 @@ bookings at `GET /api/bookings/me`, and cancel before the start date at
 `POST /api/bookings/{id}/cancel`. Vehicle availability is returned as blocked
 date ranges from `GET /api/vehicles/{id}/availability?from=YYYY-MM-DD&to=YYYY-MM-DD`.
 Owners can review bookings for their vehicles at `GET /api/owners/me/bookings`;
-admins can review all bookings at `GET /api/admin/bookings`.
+admins can review all bookings at `GET /api/admin/bookings`. Owners can block
+dates on their own vehicles and admins on any vehicle with
+`POST /api/vehicles/{id}/blocks`; remove a block with
+`DELETE /api/vehicles/{id}/blocks/{block_id}`. Public availability includes
+both booking and owner/admin blocks. Vehicle search accepts `available_from`
+and `available_to` to omit cars with conflicts.

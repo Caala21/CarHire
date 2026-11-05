@@ -76,6 +76,48 @@ select:focus-visible {
   content: "";
 }
 
+.rdp-root {
+  --rdp-accent-color: #147a55;
+  --rdp-accent-background-color: #e7f4eb;
+  margin: 0;
+}
+
+.rdp-months {
+  justify-content: center;
+}
+
+.rdp-day_button {
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 0;
+  border-radius: 9999px;
+  color: #17231e;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.rdp-selected .rdp-day_button {
+  background: #147a55;
+  color: #fff;
+}
+
+.rdp-range_middle .rdp-day_button {
+  background: #e7f4eb;
+  color: #147a55;
+}
+
+.rdp-disabled .rdp-day_button {
+  color: #aab3ad;
+  cursor: not-allowed;
+  text-decoration: line-through;
+}
+
+.rdp-unavailable .rdp-day_button {
+  border-radius: 9999px;
+  background: #e3e7e4;
+  color: #77827b;
+}
+
 @keyframes shimmer {
   100% {
     transform: translateX(100%);
