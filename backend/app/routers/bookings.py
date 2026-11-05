@@ -1,12 +1,10 @@
-from datetime import date
-
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models import User
 from app.routers.auth import current_user, require_verified_phone
-from app.schemas.bookings import BookingCreateRequest, BookingResponse
+from app.schemas.bookings import BookingCreateRequest, BookingResponse, booking_response
 from app.services.bookings import (
     cancel_booking,
     create_booking,
@@ -22,7 +20,7 @@ def create(
     user: User = Depends(require_verified_phone),
     db: Session = Depends(get_db),
 ) -> BookingResponse:
-    return BookingResponse.model_validate(create_booking(db, user, payload))
+    return booking_response(create_booking(db, user, payload))
 
 
 @router.get("/me", response_model=list[BookingResponse])
@@ -31,7 +29,10 @@ def my_bookings(
     db: Session = Depends(get_db),
 ) -> list[BookingResponse]:
     return [
-        BookingResponse.model_validate(booking)
+        booking_response(
+            booking,
+            include_location=booking.status.value == "confirmed",
+        )
         for booking in list_customer_bookings(db, user.id)
     ]
 
@@ -43,4 +44,7 @@ def cancel(
     db: Session = Depends(get_db),
 ) -> BookingResponse:
     booking = cancel_booking(db, booking_id, user.id)
-    return BookingResponse.model_validate(booking)
+    return booking_response(
+        booking,
+        include_location=booking.status.value == "confirmed",
+    )

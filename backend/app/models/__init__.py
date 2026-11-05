@@ -10,6 +10,7 @@ from app.models.enums import (
     VehicleStatus,
     VerificationChannel,
 )
+from app.models.geocode_cache import GeocodeCache
 from app.models.audit import AuditLog
 from app.models.maintenance import Maintenance
 from app.models.payment import Payment
@@ -23,6 +24,7 @@ __all__ = [
     "Booking",
     "BookingStatus",
     "CustomerProfile",
+    "GeocodeCache",
     "AuditLog",
     "Maintenance",
     "OwnerProfile",

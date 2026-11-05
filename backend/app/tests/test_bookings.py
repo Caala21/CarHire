@@ -361,6 +361,58 @@ def test_booking_lists_are_scoped_for_customers_owners_and_admins(client):
     assert client.get("/api/owners/me/bookings", headers=other_owner_headers).status_code == 403
 
 
+def test_vehicle_coordinates_are_shared_only_with_owners_admins_and_confirmed_customer(client):
+    customer_headers, _ = register_customer(client, "location-booking-customer@example.com")
+    owner_headers, owner_id = create_owner(client, "location-booking-owner@example.com")
+    admin_headers = create_admin(client, "location-booking-admin@example.com")
+    vehicle_id = create_public_vehicle(client, owner_id=owner_id)
+    latitude = -1.2676
+    longitude = 36.8108
+
+    generator = client.app.dependency_overrides[get_db]()
+    db = next(generator)
+    try:
+        vehicle = db.get(Vehicle, vehicle_id)
+        assert vehicle is not None
+        vehicle.latitude = latitude
+        vehicle.longitude = longitude
+        db.commit()
+    finally:
+        generator.close()
+
+    created = client.post(
+        "/api/bookings",
+        json=booking_payload(vehicle_id),
+        headers=customer_headers,
+    )
+    assert created.status_code == 201
+    assert created.json()["vehicle"]["latitude"] is None
+    pending = client.get("/api/bookings/me", headers=customer_headers).json()[0]
+    assert pending["vehicle"]["latitude"] is None
+    assert pending["vehicle"]["longitude"] is None
+
+    owner_booking = client.get("/api/owners/me/bookings", headers=owner_headers).json()[0]
+    admin_booking = client.get("/api/admin/bookings", headers=admin_headers).json()[0]
+    assert owner_booking["vehicle"]["latitude"] == latitude
+    assert owner_booking["vehicle"]["longitude"] == longitude
+    assert admin_booking["vehicle"]["latitude"] == latitude
+    assert admin_booking["vehicle"]["longitude"] == longitude
+
+    generator = client.app.dependency_overrides[get_db]()
+    db = next(generator)
+    try:
+        booking = db.get(Booking, created.json()["id"])
+        assert booking is not None
+        booking.status = BookingStatus.CONFIRMED
+        db.commit()
+    finally:
+        generator.close()
+
+    confirmed = client.get("/api/bookings/me", headers=customer_headers).json()[0]
+    assert confirmed["vehicle"]["latitude"] == latitude
+    assert confirmed["vehicle"]["longitude"] == longitude
+
+
 def test_expired_unpaid_booking_is_released_during_availability_check(client):
     headers, _ = register_customer(client, "booking-expired@example.com")
     vehicle_id = create_public_vehicle(client)

@@ -7,14 +7,16 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.errors import AppError
 from app.models import OwnerProfile, User, Vehicle
+from app.models.enums import Role
 from app.routers.auth import current_user, require_role, require_verified_phone
 from app.schemas.fleet import (
     FileUploadResponse,
     OwnerApplicationRequest,
     OwnerApplicationResponse,
+    OwnerVehicleResponse,
     VehicleResponse,
 )
-from app.schemas.bookings import BookingResponse
+from app.schemas.bookings import BookingResponse, booking_response
 from app.services.bookings import list_owner_bookings
 from app.services.file_records import persist_upload
 from app.services.fleet import apply_as_owner
@@ -43,17 +45,25 @@ def my_application(
     return OwnerApplicationResponse.model_validate(profile)
 
 
-@router.get("/me/vehicles", response_model=list[VehicleResponse])
+@router.get("/me/vehicles", response_model=list[OwnerVehicleResponse])
 def my_vehicles(
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
-) -> list[VehicleResponse]:
+) -> list[OwnerVehicleResponse]:
     if db.get(OwnerProfile, user.id) is None:
         raise AppError(403, "owner_profile_required", "An owner application is required")
     vehicles = db.scalars(
         select(Vehicle).where(Vehicle.owner_id == user.id).order_by(Vehicle.created_at.desc())
     ).all()
-    return [VehicleResponse.model_validate(vehicle) for vehicle in vehicles]
+    responses = []
+    for vehicle in vehicles:
+        response = OwnerVehicleResponse.model_validate(vehicle)
+        if user.role is not Role.OWNER:
+            response = response.model_copy(
+                update={"latitude": None, "longitude": None}
+            )
+        responses.append(response)
+    return responses
 
 
 @router.get("/me/bookings", response_model=list[BookingResponse])
@@ -62,7 +72,7 @@ def my_vehicle_bookings(
     db: Session = Depends(get_db),
 ) -> list[BookingResponse]:
     return [
-        BookingResponse.model_validate(booking)
+        booking_response(booking, include_location=True)
         for booking in list_owner_bookings(db, user.id)
     ]
 

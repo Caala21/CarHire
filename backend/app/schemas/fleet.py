@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.enums import (
     OwnerVerificationStatus,
@@ -67,6 +67,15 @@ class VehicleCreateRequest(BaseModel):
     insurance_expiry: date
     inspection_expiry: date
     location: str = Field(min_length=1, max_length=500)
+    area_name: str | None = Field(default=None, min_length=1, max_length=160)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+
+    @model_validator(mode="after")
+    def validate_coordinate_pair(self) -> "VehicleCreateRequest":
+        if (self.latitude is None) != (self.longitude is None):
+            raise ValueError("latitude and longitude must be provided together")
+        return self
 
 
 class VehiclePatchRequest(BaseModel):
@@ -83,9 +92,18 @@ class VehiclePatchRequest(BaseModel):
     insurance_expiry: date | None = None
     inspection_expiry: date | None = None
     location: str | None = Field(default=None, max_length=500)
+    area_name: str | None = Field(default=None, min_length=1, max_length=160)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
     status: VehicleStatus | None = None
 
     model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def validate_coordinate_pair(self) -> "VehiclePatchRequest":
+        if (self.latitude is None) != (self.longitude is None):
+            raise ValueError("latitude and longitude must be provided together")
+        return self
 
 
 class VehicleResponse(BaseModel):
@@ -105,10 +123,17 @@ class VehicleResponse(BaseModel):
     insurance_expiry: date | None
     inspection_expiry: date | None
     location: str | None
+    area_name: str | None
+    distance_km: int | None = None
     photos: list[str]
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class OwnerVehicleResponse(VehicleResponse):
+    latitude: float | None
+    longitude: float | None
 
 
 class VehiclePageResponse(BaseModel):
@@ -116,6 +141,15 @@ class VehiclePageResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class ReverseGeocodeRequest(BaseModel):
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+
+
+class ReverseGeocodeResponse(BaseModel):
+    area_name: str
 
 
 class AssistantSearchRequest(BaseModel):
@@ -166,6 +200,8 @@ class AdminVehicleResponse(VehicleResponse):
     owner_id: int | None = None
     owner_id_document_download_url: str | None = None
     owner_verification_status: OwnerVerificationStatus | None = None
+    latitude: float | None
+    longitude: float | None
 
 
 class AdminDashboardResponse(BaseModel):

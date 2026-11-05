@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from fastapi.responses import FileResponse
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -29,6 +29,8 @@ from app.schemas.bookings import (
 )
 from app.schemas.fleet import (
     FileUploadResponse,
+    ReverseGeocodeRequest,
+    ReverseGeocodeResponse,
     VehicleCreateRequest,
     VehiclePageResponse,
     VehiclePatchRequest,
@@ -48,6 +50,7 @@ from app.services.fleet import (
     update_vehicle,
     vehicle_is_public,
 )
+from app.services.geocoding import reverse_geocode
 from app.services.storage import storage
 
 router = APIRouter(prefix="/vehicles", tags=["vehicles"])
@@ -57,6 +60,7 @@ ACTIVE_BOOKING_STATUSES = (
     BookingStatus.CONFIRMED,
     BookingStatus.ACTIVE,
 )
+EARTH_RADIUS_KM = 6371.0
 
 
 def _get_vehicle(db: Session, vehicle_id: int) -> Vehicle:
@@ -84,6 +88,27 @@ def _can_manage_blocks(vehicle: Vehicle, user: User) -> None:
     raise AppError(403, "forbidden", "You can only manage availability for your own vehicles")
 
 
+def _can_reverse_geocode(user: User, db: Session) -> None:
+    if user.role in (Role.ADMIN, Role.STAFF):
+        return
+    if user.role in (Role.CUSTOMER, Role.OWNER) and db.get(OwnerProfile, user.id) is not None:
+        return
+    raise AppError(403, "forbidden", "Apply as a vehicle owner to use pickup location lookup")
+
+
+def _distance_expression(latitude: float, longitude: float):
+    lat1 = func.radians(Vehicle.latitude)
+    lat2 = func.radians(latitude)
+    delta_lat = lat2 - lat1
+    delta_lon = func.radians(longitude) - func.radians(Vehicle.longitude)
+    haversine = (
+        func.pow(func.sin(delta_lat / 2), 2)
+        + func.cos(lat1) * func.cos(lat2) * func.pow(func.sin(delta_lon / 2), 2)
+    )
+    bounded_haversine = case((haversine > 1, 1.0), else_=haversine)
+    return EARTH_RADIUS_KM * 2 * func.asin(func.sqrt(bounded_haversine))
+
+
 @router.get("", response_model=VehiclePageResponse)
 def list_vehicles(
     make: str | None = None,
@@ -94,12 +119,17 @@ def list_vehicles(
     min_price: Decimal | None = Query(default=None, ge=0),
     max_price: Decimal | None = Query(default=None, ge=0),
     location: str | None = None,
+    near_lat: float | None = Query(default=None, ge=-90, le=90),
+    near_lng: float | None = Query(default=None, ge=-180, le=180),
+    radius_km: float = Query(default=50, gt=0, le=500),
     available_from: date | None = None,
     available_to: date | None = None,
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ) -> VehiclePageResponse:
+    if (near_lat is None) != (near_lng is None):
+        raise AppError(422, "invalid_nearby_search", "Both near_lat and near_lng are required")
     if (available_from is None) != (available_to is None):
         raise AppError(422, "invalid_date_range", "Both available_from and available_to are required")
     if available_from is not None and available_to is not None:
@@ -130,17 +160,50 @@ def list_vehicles(
                 VehicleBlock.end_date > available_from,
             ).exists(),
         )
-    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
-    vehicles = db.scalars(
-        query.order_by(Vehicle.created_at.desc(), Vehicle.id.desc())
-        .offset(offset)
-        .limit(limit)
-    ).all()
+    if near_lat is not None and near_lng is not None:
+        distance = _distance_expression(near_lat, near_lng)
+        query = query.where(
+            Vehicle.latitude.is_not(None),
+            Vehicle.longitude.is_not(None),
+            distance <= radius_km,
+        ).add_columns(distance.label("distance_km"))
+        total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+        rows = db.execute(
+            query.order_by(distance, Vehicle.id)
+            .offset(offset)
+            .limit(limit)
+        ).all()
+        items = [
+            VehicleResponse.model_validate(vehicle).model_copy(
+                update={"distance_km": round(distance_km)}
+            )
+            for vehicle, distance_km in rows
+        ]
+    else:
+        total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+        vehicles = db.scalars(
+            query.order_by(Vehicle.created_at.desc(), Vehicle.id.desc())
+            .offset(offset)
+            .limit(limit)
+        ).all()
+        items = [VehicleResponse.model_validate(vehicle) for vehicle in vehicles]
     return VehiclePageResponse(
-        items=[VehicleResponse.model_validate(vehicle) for vehicle in vehicles],
+        items=items,
         total=total,
         limit=limit,
         offset=offset,
+    )
+
+
+@router.post("/reverse-geocode", response_model=ReverseGeocodeResponse)
+def vehicle_reverse_geocode(
+    payload: ReverseGeocodeRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> ReverseGeocodeResponse:
+    _can_reverse_geocode(user, db)
+    return ReverseGeocodeResponse(
+        area_name=reverse_geocode(db, payload.latitude, payload.longitude)
     )
 
 

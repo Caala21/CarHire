@@ -5,6 +5,7 @@ import "react-day-picker/style.css";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "./auth.jsx";
 import { jsonBody } from "./lib/api.js";
+import LocationPicker from "./LocationPicker.jsx";
 
 function dateKey(date) {
   const year = date.getFullYear();
@@ -354,6 +355,7 @@ export function OwnerAvailabilityPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const selectedVehicle = vehicles.find((vehicle) => String(vehicle.id) === vehicleId);
 
   async function loadBlocks(selectedVehicleId) {
     if (!selectedVehicleId) {
@@ -540,6 +542,22 @@ export function OwnerAvailabilityPage() {
                 )}
               </section>
             </section>
+            {selectedVehicle && (
+              <OwnerLocationEditor
+                key={selectedVehicle.id}
+                vehicle={selectedVehicle}
+                request={request}
+                onSave={(updatedLocation) => {
+                  setVehicles((current) =>
+                    current.map((vehicle) =>
+                      vehicle.id === selectedVehicle.id
+                        ? { ...vehicle, ...updatedLocation }
+                        : vehicle,
+                    ),
+                  );
+                }}
+              />
+            )}
           </>
         )}
       </main>
@@ -547,5 +565,65 @@ export function OwnerAvailabilityPage() {
         <div className="mx-auto max-w-7xl px-5 py-8 text-sm text-muted sm:px-8">CarHire Kenya</div>
       </footer>
     </>
+  );
+}
+
+function OwnerLocationEditor({ vehicle, request, onSave }) {
+  const [location, setLocation] = useState({
+    areaName: vehicle.area_name || "",
+    latitude: vehicle.latitude,
+    longitude: vehicle.longitude,
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function saveLocation(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await request(`/api/vehicles/${vehicle.id}`, {
+        method: "PATCH",
+        body: jsonBody({
+          area_name: location.areaName,
+          location: location.areaName,
+          latitude: location.latitude,
+          longitude: location.longitude,
+        }),
+      });
+      onSave({
+        area_name: location.areaName,
+        location: location.areaName,
+        latitude: location.latitude,
+        longitude: location.longitude,
+      });
+    } catch (saveError) {
+      setError(saveError.message || "Your pickup location could not be saved.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={saveLocation} className="mt-8 rounded-3xl border border-line bg-white p-5 shadow-soft">
+      <h2 className="text-lg font-extrabold text-ink">Edit pickup location</h2>
+      <p className="mt-1 text-sm text-muted">The area is public; your exact coordinates remain private.</p>
+      <div className="mt-5">
+        <LocationPicker
+          request={request}
+          areaName={location.areaName}
+          latitude={location.latitude}
+          longitude={location.longitude}
+          onAreaNameChange={(areaName) => setLocation((current) => ({ ...current, areaName }))}
+          onCoordinatesChange={(latitude, longitude) =>
+            setLocation((current) => ({ ...current, latitude, longitude }))
+          }
+        />
+      </div>
+      {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
+      <button type="submit" disabled={busy || !location.areaName.trim()} className="btn-primary mt-5">
+        {busy ? "Saving…" : "Save pickup location"}
+      </button>
+    </form>
   );
 }

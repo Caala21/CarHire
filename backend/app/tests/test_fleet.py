@@ -1,9 +1,18 @@
 from datetime import date, datetime, timedelta, timezone
+import logging
 
 import pytest
 
 from app.core.database import get_db
-from app.models import AuditLog, OwnerProfile, Role, User
+from app.main import CoordinateQueryRedactionFilter
+from app.models import (
+    AuditLog,
+    OwnerProfile,
+    Role,
+    User,
+    Vehicle,
+    VehicleApprovalStatus,
+)
 from app.services.storage import storage
 
 PDF_BYTES = b"%PDF-1.7\nfleet document\n"
@@ -482,3 +491,198 @@ def test_public_vehicle_photo_upload_is_capped_at_eight(client, isolated_uploads
     detail = client.get(f"/api/vehicles/{vehicle_id}").json()
     assert listed_vehicle["photos"] == photo_urls
     assert detail["photos"] == photo_urls
+
+
+def test_vehicle_coordinates_are_private_and_owner_can_edit_them(client, isolated_uploads):
+    owner_headers, owner_id = apply_owner(client, "location-owner@example.com")
+    approve_owner(client, owner_headers, owner_id)
+    admin_headers = create_admin(client, "location-admin@example.com")
+    payload = vehicle_payload("KDL678A")
+    payload.update(
+        area_name="Westlands, Nairobi",
+        latitude=-1.2676,
+        longitude=36.8108,
+    )
+    created = client.post("/api/vehicles", json=payload, headers=owner_headers)
+    assert created.status_code == 201
+    vehicle_id = created.json()["id"]
+
+    owned = client.get("/api/owners/me/vehicles", headers=owner_headers).json()[0]
+    assert owned["latitude"] == -1.2676
+    assert owned["longitude"] == 36.8108
+    pending = client.get("/api/admin/vehicles", headers=admin_headers).json()
+    admin_vehicle = next(item for item in pending if item["id"] == vehicle_id)
+    assert admin_vehicle["latitude"] == -1.2676
+    assert admin_vehicle["longitude"] == 36.8108
+
+    updated = client.patch(
+        f"/api/vehicles/{vehicle_id}",
+        json={
+            "area_name": "Kilimani, Nairobi",
+            "location": "Kilimani, Nairobi",
+            "latitude": -1.2921,
+            "longitude": 36.7875,
+        },
+        headers=owner_headers,
+    )
+    assert updated.status_code == 200
+    owned = client.get("/api/owners/me/vehicles", headers=owner_headers).json()[0]
+    assert owned["area_name"] == "Kilimani, Nairobi"
+    assert owned["latitude"] == -1.2921
+    assert owned["longitude"] == 36.7875
+
+    for document_type in ("logbook", "insurance"):
+        uploaded = client.post(
+            f"/api/vehicles/{vehicle_id}/documents",
+            data={"document_type": document_type},
+            files={"file": (f"{document_type}.pdf", PDF_BYTES, "application/pdf")},
+            headers=owner_headers,
+        )
+        assert uploaded.status_code == 201
+    approved = client.post(
+        f"/api/admin/vehicles/{vehicle_id}/approve",
+        headers=admin_headers,
+    )
+    assert approved.status_code == 200
+    for item in client.get("/api/vehicles").json()["items"]:
+        assert "latitude" not in item and "longitude" not in item
+        if item["id"] == vehicle_id:
+            assert item["area_name"] == "Kilimani, Nairobi"
+
+
+def test_nearby_vehicle_search_sorts_by_distance_and_limits_radius(client):
+    generator = client.app.dependency_overrides[get_db]()
+    db = next(generator)
+    try:
+        coordinates = [
+            ("KDA100A", "Closest", -1.2864, 36.8172),
+            ("KDA101A", "Nearby", -1.3000, 36.8200),
+            ("KDA102A", "Far", -4.0435, 39.6682),
+        ]
+        for plate, area_name, latitude, longitude in coordinates:
+            db.add(
+                Vehicle(
+                    make="Toyota",
+                    model=area_name,
+                    year=2024,
+                    plate=plate,
+                    chassis_number=f"LOCATION-{plate}",
+                    insurance_url="/api/files/insurance",
+                    insurance_expiry=date.today() + timedelta(days=180),
+                    inspection_expiry=date.today() + timedelta(days=180),
+                    approval_status=VehicleApprovalStatus.APPROVED,
+                    location="Kenya",
+                    area_name=area_name,
+                    latitude=latitude,
+                    longitude=longitude,
+                    seats=5,
+                    transmission="automatic",
+                    fuel_type="petrol",
+                    daily_rate=4500,
+                    deposit_amount=10000,
+                )
+            )
+        db.commit()
+    finally:
+        generator.close()
+
+    response = client.get(
+        "/api/vehicles",
+        params={"near_lat": -1.2864, "near_lng": 36.8172, "radius_km": 10},
+    )
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert [item["model"] for item in items] == ["Closest", "Nearby"]
+    assert [item["distance_km"] for item in items] == [0, 2]
+    assert all("latitude" not in item and "longitude" not in item for item in items)
+    assert all("area_name" in item for item in items)
+
+    radius_limited = client.get(
+        "/api/vehicles",
+        params={"near_lat": -1.2864, "near_lng": 36.8172, "radius_km": 1},
+    )
+    assert [item["model"] for item in radius_limited.json()["items"]] == ["Closest"]
+    assert client.get("/api/vehicles", params={"near_lat": 0}).status_code == 422
+
+
+def test_reverse_geocoding_is_owner_only_cached_and_uses_a_user_agent(client, monkeypatch):
+    from app.services import geocoding
+
+    owner_headers, owner_id = apply_owner(client, "geocode-owner@example.com")
+    approve_owner(client, owner_headers, owner_id)
+    customer_headers = register(client, "geocode-customer@example.com")
+    requests = []
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self):
+            return b'{"address":{"suburb":"Westlands","city":"Nairobi"}}'
+
+    def fake_urlopen(request, timeout):
+        requests.append(request)
+        assert timeout == 10
+        assert request.get_header("User-agent") == (
+            "CarHire/0.1 (https://github.com/Caala21/CarHire)"
+        )
+        return FakeResponse()
+
+    monkeypatch.setattr(geocoding, "urlopen", fake_urlopen)
+    clock = [10.0]
+    waits = []
+
+    def fake_sleep(seconds):
+        waits.append(seconds)
+        clock[0] += seconds
+
+    monkeypatch.setattr(geocoding.time, "sleep", fake_sleep)
+    monkeypatch.setattr(geocoding.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(geocoding, "_last_request_at", 9.5)
+
+    payload = {"latitude": -1.26761, "longitude": 36.81081}
+    first = client.post(
+        "/api/vehicles/reverse-geocode",
+        json=payload,
+        headers=owner_headers,
+    )
+    second = client.post(
+        "/api/vehicles/reverse-geocode",
+        json={"latitude": -1.26762, "longitude": 36.81082},
+        headers=owner_headers,
+    )
+    assert first.status_code == second.status_code == 200
+    assert first.json() == second.json() == {"area_name": "Westlands, Nairobi"}
+    assert len(requests) == 1
+    throttled = client.post(
+        "/api/vehicles/reverse-geocode",
+        json={"latitude": -1.2800, "longitude": 36.8200},
+        headers=owner_headers,
+    )
+    assert throttled.status_code == 200
+    assert len(requests) == 2
+    assert waits == [0.5, 1.0]
+    assert client.post(
+        "/api/vehicles/reverse-geocode",
+        json=payload,
+        headers=customer_headers,
+    ).status_code == 403
+
+
+def test_nearby_coordinates_are_redacted_from_access_log_records():
+    record = logging.LogRecord(
+        "uvicorn.access",
+        logging.INFO,
+        __file__,
+        1,
+        '%s - "%s %s HTTP/%s" %s',
+        ("127.0.0.1", "GET", "/api/vehicles?near_lat=-1.2&near_lng=36.8", "1.1", 200),
+        None,
+    )
+    assert CoordinateQueryRedactionFilter().filter(record)
+    assert "-1.2" not in record.getMessage()
+    assert "36.8" not in record.getMessage()
+    assert "[redacted]" in record.getMessage()

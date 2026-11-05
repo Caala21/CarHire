@@ -26,6 +26,8 @@ class BookingVehicleResponse(BaseModel):
     model: str
     year: int
     photos: list[str]
+    latitude: float | None = None
+    longitude: float | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -45,6 +47,15 @@ class BookingResponse(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+def booking_response(booking, *, include_location: bool = False) -> BookingResponse:
+    response = BookingResponse.model_validate(booking)
+    if not include_location:
+        response.vehicle = response.vehicle.model_copy(
+            update={"latitude": None, "longitude": None}
+        )
+    return response
 
 
 class AvailabilityRange(BaseModel):

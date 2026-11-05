@@ -2,10 +2,12 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    CheckConstraint,
     Date,
     DateTime,
     Enum,
     ForeignKey,
+    Float,
     Integer,
     JSON,
     Numeric,
@@ -22,7 +24,14 @@ from app.models.enums import VehicleApprovalStatus, VehicleStatus
 
 class Vehicle(Base):
     __tablename__ = "vehicles"
-    __table_args__ = (UniqueConstraint("chassis_number", name="uq_vehicles_chassis_number"),)
+    __table_args__ = (
+        UniqueConstraint("chassis_number", name="uq_vehicles_chassis_number"),
+        CheckConstraint(
+            "(latitude IS NULL AND longitude IS NULL) OR "
+            "(latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180)",
+            name="ck_vehicles_coordinate_pair",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     owner_id: Mapped[int | None] = mapped_column(
@@ -50,6 +59,9 @@ class Vehicle(Base):
     )
     rejection_reason: Mapped[str | None] = mapped_column(String(1000))
     location: Mapped[str | None] = mapped_column(Text)
+    area_name: Mapped[str | None] = mapped_column(String(160))
+    latitude: Mapped[float | None] = mapped_column(Float)
+    longitude: Mapped[float | None] = mapped_column(Float)
     seats: Mapped[int] = mapped_column(Integer)
     transmission: Mapped[str] = mapped_column(String(32))
     fuel_type: Mapped[str] = mapped_column(String(32))

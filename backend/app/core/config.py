@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     africastalking_sandbox: bool = True
     anthropic_api_key: SecretStr | None = None
     anthropic_model: str = "claude-3-5-haiku-latest"
+    nominatim_user_agent: str = "CarHire/0.1 (https://github.com/Caala21/CarHire)"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

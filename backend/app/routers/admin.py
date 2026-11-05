@@ -25,7 +25,7 @@ from app.schemas.fleet import (
     RejectionRequest,
     VehicleResponse,
 )
-from app.schemas.bookings import BookingResponse
+from app.schemas.bookings import BookingResponse, booking_response
 from app.services.fleet import review_owner, review_vehicle
 from app.services.expiry import check_vehicle_expiry, list_expiring_vehicles
 from app.services.bookings import expire_pending_bookings, list_all_bookings
@@ -71,6 +71,8 @@ def _admin_vehicle_response(vehicle: Vehicle, db: Session) -> AdminVehicleRespon
         owner_verification_status=(
             owner_profile.verification_status if owner_profile is not None else None
         ),
+        latitude=vehicle.latitude,
+        longitude=vehicle.longitude,
     )
 
 
@@ -288,7 +290,7 @@ def list_bookings(
     db: Session = Depends(get_db),
 ) -> list[BookingResponse]:
     return [
-        BookingResponse.model_validate(booking)
+        booking_response(booking, include_location=True)
         for booking in list_all_bookings(db)
     ]
 

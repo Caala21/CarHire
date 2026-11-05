@@ -29,6 +29,9 @@ DEMO_VEHICLES = (
         "model": "Corolla",
         "year": 2022,
         "location": "Nairobi",
+        "area_name": "Westlands, Nairobi",
+        "latitude": -1.2676,
+        "longitude": 36.8108,
         "seats": 5,
         "transmission": "automatic",
         "fuel_type": "petrol",
@@ -42,6 +45,9 @@ DEMO_VEHICLES = (
         "model": "CX-5",
         "year": 2021,
         "location": "Nairobi",
+        "area_name": "Kilimani, Nairobi",
+        "latitude": -1.2921,
+        "longitude": 36.7875,
         "seats": 5,
         "transmission": "automatic",
         "fuel_type": "petrol",
@@ -55,6 +61,9 @@ DEMO_VEHICLES = (
         "model": "Forester",
         "year": 2020,
         "location": "Nakuru",
+        "area_name": "Milimani, Nakuru",
+        "latitude": -0.2833,
+        "longitude": 36.0667,
         "seats": 5,
         "transmission": "automatic",
         "fuel_type": "petrol",
@@ -68,6 +77,9 @@ DEMO_VEHICLES = (
         "model": "Note",
         "year": 2022,
         "location": "Nakuru",
+        "area_name": "Nakuru CBD",
+        "latitude": -0.3031,
+        "longitude": 36.0800,
         "seats": 5,
         "transmission": "automatic",
         "fuel_type": "hybrid",
@@ -81,6 +93,9 @@ DEMO_VEHICLES = (
         "model": "Land Cruiser Prado",
         "year": 2019,
         "location": "Mombasa",
+        "area_name": "Nyali, Mombasa",
+        "latitude": -4.0435,
+        "longitude": 39.6682,
         "seats": 7,
         "transmission": "automatic",
         "fuel_type": "diesel",
@@ -94,6 +109,9 @@ DEMO_VEHICLES = (
         "model": "Demio",
         "year": 2021,
         "location": "Mombasa",
+        "area_name": "Mombasa CBD",
+        "latitude": -4.0435,
+        "longitude": 39.6682,
         "seats": 5,
         "transmission": "automatic",
         "fuel_type": "petrol",
@@ -164,6 +182,18 @@ def _seed_vehicles(db: Session, owner: User) -> int:
                 "status": VehicleStatus.AVAILABLE,
                 "insurance_url": "https://example.invalid/demo/placeholder-insurance",
             }
+            location_fields = {"area_name", "latitude", "longitude"}
+            legacy_expected_values = {
+                field: value
+                for field, value in expected_values.items()
+                if field not in location_fields
+            }
+            if all(
+                getattr(vehicle, field) == value
+                for field, value in legacy_expected_values.items()
+            ) and all(getattr(vehicle, field) is None for field in location_fields):
+                for field in location_fields:
+                    setattr(vehicle, field, data[field])
             if any(getattr(vehicle, field) != value for field, value in expected_values.items()):
                 raise ValueError(
                     f"Vehicle plate {data['plate']} exists but does not match demo data."

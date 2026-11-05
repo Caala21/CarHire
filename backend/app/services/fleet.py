@@ -106,6 +106,9 @@ def create_vehicle(db: Session, actor: User, payload: VehicleCreateRequest) -> V
         insurance_expiry=payload.insurance_expiry,
         inspection_expiry=payload.inspection_expiry,
         location=payload.location.strip(),
+        area_name=payload.area_name.strip() if payload.area_name else None,
+        latitude=payload.latitude,
+        longitude=payload.longitude,
         approval_status=approval_status,
     )
     db.add(vehicle)
@@ -132,11 +135,15 @@ def update_vehicle(
     elif actor.role not in (Role.STAFF, Role.ADMIN):
         raise AppError(403, "forbidden", "You do not have permission to edit vehicles")
 
-    updates = payload.model_dump(exclude_unset=True, exclude_none=True)
+    updates = payload.model_dump(exclude_unset=True)
     if actor.role is Role.OWNER and VEHICLE_KEY_FIELDS.intersection(updates):
         vehicle.approval_status = VehicleApprovalStatus.PENDING
         vehicle.rejection_reason = None
     for field, value in updates.items():
+        if value is None and field not in {"latitude", "longitude"}:
+            continue
+        if field == "area_name" and value is not None:
+            value = value.strip()
         setattr(vehicle, field, value)
     db.commit()
     db.refresh(vehicle)

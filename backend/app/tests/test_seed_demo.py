@@ -38,7 +38,13 @@ def test_seed_demo_is_idempotent_and_uses_placeholders(client):
             and vehicle.chassis_number is None
             and vehicle.logbook_url is None
             and vehicle.photos[0].startswith("https://placehold.co/")
+            and vehicle.latitude is not None
+            and vehicle.longitude is not None
+            and vehicle.area_name
             for vehicle in vehicles
         )
+        assert {vehicle.location for vehicle in vehicles if vehicle.latitude == -4.0435} == {
+            "Mombasa",
+        }
     finally:
         generator.close()

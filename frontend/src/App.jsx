@@ -34,6 +34,7 @@ import {
 } from "react-router-dom";
 import { useAuth } from "./auth.jsx";
 import { apiUrl, jsonBody, readResponse } from "./lib/api.js";
+import LocationPicker from "./LocationPicker.jsx";
 import { AdminRoute, DemoPage } from "./admin.jsx";
 import {
   BookingWidget,
@@ -271,6 +272,11 @@ function VehicleCard({ vehicle, index = 0 }) {
           <div>
             <h3 className="text-lg font-extrabold tracking-tight text-ink">{vehicle.year} {vehicle.make} {vehicle.model}</h3>
             <p className="mt-1 flex items-center gap-1.5 text-sm text-muted"><MapPin size={14} /> {vehicle.location || "Kenya"}</p>
+            {Number.isFinite(vehicle.distance_km) && (
+              <p className="mt-1 text-xs font-semibold text-accent">
+                {vehicle.distance_km === 0 ? "Less than 1 km away" : `About ${vehicle.distance_km} km away`}
+              </p>
+            )}
           </div>
           <p className="shrink-0 text-right text-sm font-extrabold text-ink">KES {formatPrice(vehicle.daily_rate)}<span className="block text-xs font-medium text-muted">per day</span></p>
         </div>
@@ -292,10 +298,15 @@ function LandingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [location, setLocation] = useState(searchParams.get("location") || "");
+  const [nearCoordinates, setNearCoordinates] = useState(null);
+  const [nearError, setNearError] = useState("");
+  const [gettingLocation, setGettingLocation] = useState(false);
   const [filters, setFilters] = useState({
     location: searchParams.get("location") || "",
     availableFrom: searchParams.get("available_from") || "",
     availableTo: searchParams.get("available_to") || "",
+    nearLatitude: null,
+    nearLongitude: null,
   });
   const [pickupDate, setPickupDate] = useState(searchParams.get("available_from") || "");
   const [returnDate, setReturnDate] = useState(searchParams.get("available_to") || "");
@@ -311,6 +322,11 @@ function LandingPage() {
     try {
       const query = new URLSearchParams({ limit: "12" });
       if (filters.location.trim()) query.set("location", filters.location.trim());
+      if (filters.nearLatitude != null && filters.nearLongitude != null) {
+        query.set("near_lat", String(filters.nearLatitude));
+        query.set("near_lng", String(filters.nearLongitude));
+        query.set("radius_km", "50");
+      }
       if (filters.availableFrom && filters.availableTo) {
         query.set("available_from", filters.availableFrom);
         query.set("available_to", filters.availableTo);
@@ -344,6 +360,8 @@ function LandingPage() {
       location: value,
       availableFrom: pickupDate,
       availableTo: returnDate,
+      nearLatitude: nearCoordinates?.latitude ?? null,
+      nearLongitude: nearCoordinates?.longitude ?? null,
     };
     setFilters(nextFilters);
     const params = {};
@@ -352,6 +370,32 @@ function LandingPage() {
     if (returnDate) params.available_to = returnDate;
     setSearchParams(params);
     document.getElementById("cars")?.scrollIntoView({ behavior: "smooth" });
+  }
+
+  function useNearMe() {
+    setNearError("");
+    if (!navigator.geolocation) {
+      setNearError("Location is unavailable in this browser. Type a town in the pickup field instead.");
+      return;
+    }
+    setGettingLocation(true);
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        setNearCoordinates({ latitude: coords.latitude, longitude: coords.longitude });
+        setNearError("Location ready. Your coordinates are used for this search only, not saved.");
+        setGettingLocation(false);
+      },
+      (geoError) => {
+        setNearCoordinates(null);
+        setNearError(
+          geoError.code === geoError.PERMISSION_DENIED
+            ? "Location access was denied. Type a town in the pickup field instead."
+            : "Your location couldn't be determined. Type a town in the pickup field instead.",
+        );
+        setGettingLocation(false);
+      },
+      { enableHighAccuracy: false, timeout: 10000 },
+    );
   }
 
   async function searchWithAssistant(message) {
@@ -391,13 +435,16 @@ function LandingPage() {
                 Find a ride for the weekend, or turn the car you love into a little extra income. Easy, trusted, and all in one place.
               </p>
               <form onSubmit={search} className="mt-8 grid gap-3 rounded-[1.35rem] bg-white p-3 shadow-card sm:grid-cols-2 lg:grid-cols-[1.3fr_1fr_1fr_auto] lg:items-end">
-                <label className="flex min-w-0 items-center gap-3 px-2">
+                <div className="flex min-w-0 items-center gap-2 px-2">
                   <MapPin className="shrink-0 text-accent" size={20} />
-                  <span className="min-w-0 flex-1">
+                  <label className="min-w-0 flex-1">
                     <span className="block text-[11px] font-bold uppercase tracking-[.12em] text-muted">Pick-up location</span>
-                    <input value={location} onChange={(event) => setLocation(event.target.value)} placeholder="Where are you headed?" className="w-full border-0 bg-transparent py-1 text-sm font-semibold text-ink outline-none placeholder:font-normal placeholder:text-[#a3ada6]" />
-                  </span>
-                </label>
+                    <input value={location} onChange={(event) => { setLocation(event.target.value); setNearCoordinates(null); setNearError(""); }} placeholder="Where are you headed?" className="w-full border-0 bg-transparent py-1 text-sm font-semibold text-ink outline-none placeholder:font-normal placeholder:text-[#a3ada6]" />
+                  </label>
+                  <button type="button" onClick={useNearMe} disabled={gettingLocation} className="shrink-0 rounded-lg bg-[#e7f4eb] px-2.5 py-2 text-xs font-bold text-accent disabled:opacity-60">
+                    {gettingLocation ? "Locating…" : "Near me"}
+                  </button>
+                </div>
                 <label className="min-w-0 px-2">
                   <span className="block text-[11px] font-bold uppercase tracking-[.12em] text-muted">Pick-up</span>
                   <input aria-label="Pick-up date" type="date" min={todayDate()} value={pickupDate} onChange={(event) => setPickupDate(event.target.value)} className="w-full border-0 bg-transparent py-1 text-sm font-semibold text-ink outline-none" />
@@ -408,6 +455,7 @@ function LandingPage() {
                 </label>
                 <button className="btn-primary min-h-12 sm:col-span-2 lg:col-span-1" type="submit">Find a car <ArrowRight size={17} /></button>
               </form>
+              {nearError && <p role="status" className={`mt-2 text-xs ${nearCoordinates ? "text-accent" : "text-red-700"}`}>{nearError}</p>}
               <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs font-semibold text-muted">
                 <span className="flex items-center gap-1.5"><ShieldCheck size={15} className="text-accent" /> Trusted local owners</span>
                 <span className="flex items-center gap-1.5"><CircleCheck size={15} className="text-accent" /> No hidden fees</span>
@@ -528,7 +576,7 @@ function LandingPage() {
               <div>
                 <p className="eyebrow">Handpicked for you</p>
                 <h2 className="section-title mt-3">Find your next <span className="text-accent">ride.</span></h2>
-                <p className="mt-2 text-sm text-muted">{filters.location ? `Showing cars near “${filters.location}”` : filters.availableFrom ? "Showing cars available for your dates." : "A few good reasons to get out and go."}</p>
+                <p className="mt-2 text-sm text-muted">{filters.nearLatitude != null ? "Showing cars closest to your current location." : filters.location ? `Showing cars near “${filters.location}”` : filters.availableFrom ? "Showing cars available for your dates." : "A few good reasons to get out and go."}</p>
               </div>
               <Link to="/signup?intent=list" className="btn-secondary w-fit">List your car <ArrowRight size={16} /></Link>
             </div>
@@ -545,7 +593,7 @@ function LandingPage() {
                 <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-white text-accent shadow-soft"><CarFront size={25} /></span>
                 <h3 className="mt-4 text-lg font-extrabold text-ink">No cars found just yet</h3>
                 <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted">{filters.location || filters.availableFrom ? "Try different dates or location, or clear your search to see all available cars." : "We’re getting the keys ready. Check back soon, or be the first to list a car."}</p>
-                {filters.location || filters.availableFrom ? <button className="btn-secondary mx-auto mt-5" onClick={() => { setLocation(""); setPickupDate(""); setReturnDate(""); setFilters({ location: "", availableFrom: "", availableTo: "" }); setSearchParams({}); }}>Clear search</button> : <Link to="/signup?intent=list" className="btn-primary mx-auto mt-5">List your car <ArrowRight size={16} /></Link>}
+                {filters.location || filters.availableFrom || filters.nearLatitude != null ? <button className="btn-secondary mx-auto mt-5" onClick={() => { setLocation(""); setNearCoordinates(null); setNearError(""); setPickupDate(""); setReturnDate(""); setFilters({ location: "", availableFrom: "", availableTo: "", nearLatitude: null, nearLongitude: null }); setSearchParams({}); }}>Clear search</button> : <Link to="/signup?intent=list" className="btn-primary mx-auto mt-5">List your car <ArrowRight size={16} /></Link>}
               </div>
             ) : null}
           </div>
@@ -680,6 +728,11 @@ function SignupFlow() {
   const [ownerDocuments, setOwnerDocuments] = useState({ id: null, selfie: null });
   const [uploadedOwnerDocuments, setUploadedOwnerDocuments] = useState([]);
   const [vehicle, setVehicle] = useState(null);
+  const [vehicleLocation, setVehicleLocation] = useState({
+    areaName: "",
+    latitude: null,
+    longitude: null,
+  });
   const [vehicleDocuments, setVehicleDocuments] = useState({ logbook: null, insurance: null });
   const [vehiclePhotos, setVehiclePhotos] = useState([]);
   const [uploadedVehicleDocuments, setUploadedVehicleDocuments] = useState([]);
@@ -888,6 +941,9 @@ function SignupFlow() {
           insurance_expiry: form.get("insurance_expiry"),
           inspection_expiry: form.get("inspection_expiry"),
           location: form.get("location").trim(),
+          area_name: form.get("area_name").trim(),
+          latitude: vehicleLocation.latitude,
+          longitude: vehicleLocation.longitude,
         };
         created = await request("/api/vehicles", { method: "POST", body: jsonBody(payload) });
         setVehicle(created);
@@ -1009,7 +1065,7 @@ function SignupFlow() {
               </section>
             )}
             {step === 4 && <OwnerStep busy={busy} ownerApplication={ownerApplication} documents={ownerDocuments} setDocuments={setOwnerDocuments} uploaded={uploadedOwnerDocuments} onSubmit={submitOwnerApplication} onError={setError} />}
-            {step === 5 && <VehicleStep busy={busy} vehicle={vehicle} documents={vehicleDocuments} setDocuments={setVehicleDocuments} photos={vehiclePhotos} setPhotos={setVehiclePhotos} uploaded={uploadedVehicleDocuments} onSubmit={submitVehicle} onError={setError} />}
+            {step === 5 && <VehicleStep busy={busy} vehicle={vehicle} vehicleLocation={vehicleLocation} setVehicleLocation={setVehicleLocation} request={request} documents={vehicleDocuments} setDocuments={setVehicleDocuments} photos={vehiclePhotos} setPhotos={setVehiclePhotos} uploaded={uploadedVehicleDocuments} onSubmit={submitVehicle} onError={setError} />}
             {step === 7 && <RentReady user={user} onBrowse={() => navigate("/#cars")} />}
           </div>
         </div>
@@ -1097,7 +1153,7 @@ function OwnerStep({ busy, ownerApplication, documents, setDocuments, uploaded, 
   );
 }
 
-function VehicleStep({ busy, vehicle, documents, setDocuments, photos, setPhotos, uploaded, onSubmit, onError }) {
+function VehicleStep({ busy, vehicle, vehicleLocation, setVehicleLocation, request, documents, setDocuments, photos, setPhotos, uploaded, onSubmit, onError }) {
   const update = (key) => (event) => {
     const file = event.target.files?.[0] || null;
     const validation = validateUpload(file);
@@ -1150,7 +1206,14 @@ function VehicleStep({ busy, vehicle, documents, setDocuments, photos, setPhotos
         <FormField label="Refundable deposit (KES)"><input required name="deposit_amount" type="number" min="0" step="0.01" className="field" placeholder="10000" /></FormField>
         <FormField label="Insurance expiry"><input required name="insurance_expiry" type="date" min={minDate} defaultValue={defaultExpiry} className="field" /></FormField>
         <FormField label="Inspection expiry"><input required name="inspection_expiry" type="date" min={minDate} defaultValue={defaultExpiry} className="field" /></FormField>
-        <div className="sm:col-span-2"><FormField label="Pick-up location"><input required name="location" maxLength="500" className="field" placeholder="Westlands, Nairobi" /></FormField></div>
+        <LocationPicker
+          request={request}
+          areaName={vehicleLocation.areaName}
+          latitude={vehicleLocation.latitude}
+          longitude={vehicleLocation.longitude}
+          onAreaNameChange={(areaName) => setVehicleLocation((current) => ({ ...current, areaName }))}
+          onCoordinatesChange={(latitude, longitude) => setVehicleLocation((current) => ({ ...current, latitude, longitude }))}
+        />
       </div>
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
         <label className="block"><span className="mb-2 block text-xs font-bold text-ink">Logbook</span><input required={!uploaded.includes("logbook")} type="file" accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf" onChange={update("logbook")} className="file-field" />{documents.logbook && !uploaded.includes("logbook") ? <UploadPreview file={documents.logbook} /> : uploaded.includes("logbook") ? <span className="mt-2 block text-xs font-semibold text-accent">Uploaded ✓</span> : <span className="mt-2 block text-xs text-muted">JPG, PNG or PDF · Up to 5 MB</span>}</label>
