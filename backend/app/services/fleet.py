@@ -190,7 +190,13 @@ def public_vehicle_query(
     if max_price is not None:
         query = query.where(Vehicle.daily_rate <= max_price)
     if location:
-        query = query.where(Vehicle.location.ilike(f"%{location}%"))
+        location_pattern = f"%{location}%"
+        query = query.where(
+            or_(
+                Vehicle.location.ilike(location_pattern),
+                Vehicle.area_name.ilike(location_pattern),
+            )
+        )
     return query
 
 

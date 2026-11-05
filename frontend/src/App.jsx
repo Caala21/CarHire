@@ -271,7 +271,7 @@ function VehicleCard({ vehicle, index = 0 }) {
         <div className="flex items-start justify-between gap-3">
           <div>
             <h3 className="text-lg font-extrabold tracking-tight text-ink">{vehicle.year} {vehicle.make} {vehicle.model}</h3>
-            <p className="mt-1 flex items-center gap-1.5 text-sm text-muted"><MapPin size={14} /> {vehicle.location || "Kenya"}</p>
+            <p className="mt-1 flex items-center gap-1.5 text-sm text-muted"><MapPin size={14} /> {vehicle.area_name || vehicle.location || "Kenya"}</p>
             {Number.isFinite(vehicle.distance_km) && (
               <p className="mt-1 text-xs font-semibold text-accent">
                 {vehicle.distance_km === 0 ? "Less than 1 km away" : `About ${vehicle.distance_km} km away`}
@@ -664,7 +664,7 @@ function VehicleDetailPage() {
     { icon: <UsersRound size={19} />, label: "Seats", value: `${vehicle.seats} passengers` },
     { icon: <CarFront size={19} />, label: "Transmission", value: vehicle.transmission },
     { icon: <Fuel size={19} />, label: "Fuel", value: vehicle.fuel_type },
-    { icon: <MapPin size={19} />, label: "Pick-up", value: vehicle.location || "Kenya" },
+    { icon: <MapPin size={19} />, label: "Pick-up", value: vehicle.area_name || vehicle.location || "Kenya" },
     { icon: <CalendarDays size={19} />, label: "Year", value: vehicle.year },
   ];
 
@@ -689,7 +689,7 @@ function VehicleDetailPage() {
             <div className="mt-8">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-[#e7f4eb] px-3 py-1.5 text-xs font-bold text-accent"><BadgeCheck size={14} /> Verified listing</span>
               <h1 className="mt-4 text-3xl font-black tracking-tight text-ink sm:text-4xl">{vehicle.year} {vehicle.make} {vehicle.model}</h1>
-              <p className="mt-2 flex items-center gap-1.5 text-sm text-muted"><MapPin size={16} /> {vehicle.location || "Kenya"}</p>
+              <p className="mt-2 flex items-center gap-1.5 text-sm text-muted"><MapPin size={16} /> {vehicle.area_name || vehicle.location || "Kenya"}</p>
               <div className="mt-7 grid grid-cols-2 gap-3 sm:grid-cols-3">{detailItems.map((item) => <div key={item.label} className="rounded-2xl border border-line p-4"><span className="text-accent">{item.icon}</span><p className="mt-3 text-xs font-semibold text-muted">{item.label}</p><p className="mt-1 font-bold capitalize text-ink">{item.value}</p></div>)}</div>
             </div>
           </div>

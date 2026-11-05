@@ -25,6 +25,19 @@ vehicles and one approved demo owner. The seed uses reserved placeholder
 identity/contact values and image URLs, creates no identity documents, and is
 safe to run repeatedly.
 
+## Pickup locations and nearby search
+
+Vehicle listings show an owner-entered pickup area. Owners can set the area
+and map pin while listing or editing a car; exact coordinates are only shared
+with the owner, admins, and a customer after their booking is confirmed.
+Customers can search by town/area or use “Near me”; browser coordinates are
+used for that search only and are neither stored nor included in access logs.
+Nearby results are distance-sorted and show rounded distances.
+
+The backend reverse-geocodes owner-selected pins through Nominatim and caches
+the results. Apply the Alembic migrations with `alembic upgrade head` from
+`backend/` to add vehicle coordinates and the geocoding cache.
+
 ## Booking holds
 
 Unpaid pending bookings hold their dates for 30 minutes. Run

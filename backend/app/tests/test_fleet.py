@@ -548,6 +548,11 @@ def test_vehicle_coordinates_are_private_and_owner_can_edit_them(client, isolate
         assert "latitude" not in item and "longitude" not in item
         if item["id"] == vehicle_id:
             assert item["area_name"] == "Kilimani, Nairobi"
+    public_detail = client.get(f"/api/vehicles/{vehicle_id}")
+    assert public_detail.status_code == 200
+    assert public_detail.json()["area_name"] == "Kilimani, Nairobi"
+    assert "latitude" not in public_detail.json()
+    assert "longitude" not in public_detail.json()
 
 
 def test_nearby_vehicle_search_sorts_by_distance_and_limits_radius(client):
@@ -596,6 +601,10 @@ def test_nearby_vehicle_search_sorts_by_distance_and_limits_radius(client):
     assert [item["distance_km"] for item in items] == [0, 2]
     assert all("latitude" not in item and "longitude" not in item for item in items)
     assert all("area_name" in item for item in items)
+
+    area_search = client.get("/api/vehicles", params={"location": "Nearby"})
+    assert area_search.status_code == 200
+    assert [item["area_name"] for item in area_search.json()["items"]] == ["Nearby"]
 
     radius_limited = client.get(
         "/api/vehicles",
