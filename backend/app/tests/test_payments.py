@@ -13,10 +13,15 @@ from app.services import mpesa
 
 
 class FakeResponse:
-    def __init__(self, payload):
+    def __init__(self, payload, status_code=200):
         self.payload = payload
+        self.status_code = status_code
 
     def raise_for_status(self):
+        if self.status_code >= 400:
+            import requests
+
+            raise requests.HTTPError(response=self)
         return None
 
     def json(self):
@@ -353,6 +358,19 @@ def test_reconciliation_uses_staged_callback_only_after_query_confirms(client, d
 def test_production_mpesa_settings_are_required():
     with pytest.raises(ValueError, match="all MPESA"):
         Settings(_env_file=None, mpesa_env="production")
+
+
+def test_daraja_errors_keep_only_safe_codes(monkeypatch, caplog):
+    response = FakeResponse(
+        {"errorCode": "InvalidAccessToken", "errorMessage": "Sensitive provider detail"},
+        status_code=401,
+    )
+    with pytest.raises(mpesa.MpesaGatewayError) as error:
+        mpesa._json_response(response, phase="oauth")
+    assert error.value.code == "mpesa_oauth_http_error"
+    assert error.value.http_status == 401
+    assert error.value.provider_code == "InvalidAccessToken"
+    assert "Sensitive provider detail" not in caplog.text
 
 
 def test_unverified_customer_cannot_start_stk_push(client, daraja):

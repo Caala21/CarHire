@@ -10,7 +10,9 @@ cp .env.example .env
 npm run dev
 ```
 
-Set `VITE_API_URL` to the FastAPI origin (for example `http://localhost:8000`).
+During local development, Vite proxies `/api` requests to the FastAPI server on
+port 8000, so the browser only needs access to the frontend port. For a separately
+hosted API, set `VITE_API_URL` to its origin before building the frontend.
 Set `VITE_GOOGLE_CLIENT_ID` to the Google OAuth web client ID to enable the
 Google sign-in button. The frontend calls the routes documented by the API's
 `/openapi.json`.

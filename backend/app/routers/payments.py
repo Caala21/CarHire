@@ -50,7 +50,11 @@ def pay_booking_deposit(
     try:
         payment = create_deposit_payment(db, user, booking_id, payload.phone)
     except MpesaGatewayError as exc:
-        raise AppError(502, "payment_provider_error", "M-Pesa could not start the payment request") from exc
+        raise AppError(
+            502,
+            exc.code,
+            "M-Pesa could not start the payment request. Check the backend payment logs for the provider error code.",
+        ) from exc
     return PaymentResponse.model_validate(payment)
 
 

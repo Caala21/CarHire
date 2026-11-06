@@ -1,5 +1,9 @@
-const configuredApiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
-const apiOrigin = configuredApiUrl.replace(/\/+$/, "");
+const configuredApiUrl = import.meta.env.VITE_API_URL?.trim() || "";
+const localApiUrl = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(configuredApiUrl);
+const apiOrigin =
+  import.meta.env.DEV && (!configuredApiUrl || localApiUrl)
+    ? ""
+    : configuredApiUrl.replace(/\/+$/, "");
 
 export function apiUrl(path) {
   if (/^https?:\/\//i.test(path)) return path;

@@ -1,5 +1,6 @@
 import base64
 import logging
+import re
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -29,7 +30,20 @@ PAYMENT_RECONCILE_AFTER_SECONDS = 120
 
 
 class MpesaGatewayError(Exception):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "daraja_request_failed",
+        phase: str = "request",
+        http_status: int | None = None,
+        provider_code: str | None = None,
+    ):
+        super().__init__(message)
+        self.code = code
+        self.phase = phase
+        self.http_status = http_status
+        self.provider_code = provider_code
 
 
 _token_lock = threading.Lock()
@@ -50,14 +64,47 @@ def _api_base_url() -> str:
     )
 
 
-def _json_response(response: requests.Response) -> dict[str, Any]:
+def _safe_provider_code(payload: Any) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+    code = payload.get("errorCode") or payload.get("ResponseCode")
+    if not isinstance(code, (str, int)):
+        return None
+    value = str(code)
+    return value if re.fullmatch(r"[A-Za-z0-9._-]{1,64}", value) else None
+
+
+def _json_response(response: requests.Response, *, phase: str) -> dict[str, Any]:
     try:
         response.raise_for_status()
+    except requests.RequestException as exc:
+        try:
+            error_payload = response.json()
+        except ValueError:
+            error_payload = None
+        raise MpesaGatewayError(
+            "Daraja returned an HTTP error",
+            code=f"mpesa_{phase}_http_error",
+            phase=phase,
+            http_status=response.status_code,
+            provider_code=_safe_provider_code(error_payload),
+        ) from exc
+    try:
         payload = response.json()
-    except (requests.RequestException, ValueError) as exc:
-        raise MpesaGatewayError("Daraja request failed") from exc
+    except ValueError as exc:
+        raise MpesaGatewayError(
+            "Daraja returned an invalid response",
+            code=f"mpesa_{phase}_invalid_response",
+            phase=phase,
+            http_status=response.status_code,
+        ) from exc
     if not isinstance(payload, dict):
-        raise MpesaGatewayError("Daraja returned an invalid response")
+        raise MpesaGatewayError(
+            "Daraja returned an invalid response",
+            code=f"mpesa_{phase}_invalid_response",
+            phase=phase,
+            http_status=response.status_code,
+        )
     return payload
 
 
@@ -75,15 +122,30 @@ def get_oauth_token() -> str:
                 timeout=HTTP_TIMEOUT,
             )
         except requests.RequestException as exc:
-            raise MpesaGatewayError("Daraja authentication failed") from exc
-        payload = _json_response(response)
+            raise MpesaGatewayError(
+                "Daraja authentication request failed",
+                code="mpesa_oauth_network_error",
+                phase="oauth",
+            ) from exc
+        payload = _json_response(response, phase="oauth")
         access_token = payload.get("access_token")
         if not isinstance(access_token, str) or not access_token:
-            raise MpesaGatewayError("Daraja returned no access token")
+            raise MpesaGatewayError(
+                "Daraja returned no access token",
+                code="mpesa_oauth_rejected",
+                phase="oauth",
+                http_status=response.status_code,
+                provider_code=_safe_provider_code(payload),
+            )
         try:
             expires_in = max(int(payload.get("expires_in", 3600)), 1)
         except (TypeError, ValueError) as exc:
-            raise MpesaGatewayError("Daraja returned an invalid token expiry") from exc
+            raise MpesaGatewayError(
+                "Daraja returned an invalid token expiry",
+                code="mpesa_oauth_invalid_response",
+                phase="oauth",
+                http_status=response.status_code,
+            ) from exc
         _cached_token = access_token
         _token_expires_at = time.monotonic() + max(expires_in - 60, 0)
         return access_token
@@ -108,8 +170,14 @@ def _authorized_post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
             timeout=HTTP_TIMEOUT,
         )
     except requests.RequestException as exc:
-        raise MpesaGatewayError("Daraja request failed") from exc
-    return _json_response(response)
+        phase = "stk_push" if path.endswith("/processrequest") else "stk_query"
+        raise MpesaGatewayError(
+            "Daraja network request failed",
+            code=f"mpesa_{phase}_network_error",
+            phase=phase,
+        ) from exc
+    phase = "stk_push" if path.endswith("/processrequest") else "stk_query"
+    return _json_response(response, phase=phase)
 
 
 def initiate_stk_push(booking: Booking, phone: str) -> dict[str, str]:
@@ -137,14 +205,32 @@ def initiate_stk_push(booking: Booking, phone: str) -> dict[str, str]:
     }
     try:
         response = _authorized_post("/mpesa/stkpush/v1/processrequest", payload)
-    except MpesaGatewayError:
-        logger.warning("Daraja STK Push request failed for booking_id=%s", booking.id)
+    except MpesaGatewayError as exc:
+        logger.warning(
+            "Daraja STK Push failed booking_id=%s phase=%s error_code=%s "
+            "http_status=%s provider_code=%s",
+            booking.id,
+            exc.phase,
+            exc.code,
+            exc.http_status,
+            exc.provider_code,
+        )
         raise
     checkout_id = response.get("CheckoutRequestID")
     merchant_id = response.get("MerchantRequestID")
     if str(response.get("ResponseCode")) != "0" or not checkout_id or not merchant_id:
-        logger.warning("Daraja rejected STK Push for booking_id=%s", booking.id)
-        raise MpesaGatewayError("Daraja rejected the payment request")
+        logger.warning(
+            "Daraja STK Push rejected booking_id=%s error_code=mpesa_stk_push_rejected "
+            "provider_code=%s",
+            booking.id,
+            _safe_provider_code(response),
+        )
+        raise MpesaGatewayError(
+            "Daraja rejected the payment request",
+            code="mpesa_stk_push_rejected",
+            phase="stk_push",
+            provider_code=_safe_provider_code(response),
+        )
     return {"checkout_request_id": str(checkout_id), "merchant_request_id": str(merchant_id)}
 
 
