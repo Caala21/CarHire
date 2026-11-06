@@ -1303,7 +1303,7 @@ function SignInPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState(location.state?.notice || "");
 
   async function signInWithGoogle(credential) {
     setBusy(true);
@@ -1414,9 +1414,9 @@ function SignInPage() {
               </span>
             </label>
             <div className="text-right">
-              <button type="button" onClick={() => { setError(""); setNotice("Coming soon"); }} className="text-xs font-bold text-accent hover:underline">
+              <Link to="/forgot-password" className="text-xs font-bold text-accent hover:underline">
                 Forgot password?
-              </button>
+              </Link>
             </div>
             <button disabled={busy} className="btn-primary w-full">
               {busy ? <Spinner /> : "Sign in"} <ArrowRight size={16} />
@@ -1424,6 +1424,186 @@ function SignInPage() {
           </form>
           <p className="mt-5 text-center text-sm text-muted">
             New to CarHire? <Link to="/signup" className="font-bold text-accent">Create account</Link>
+          </p>
+        </div>
+      </main>
+      <Footer />
+    </>
+  );
+}
+
+function ForgotPasswordPage() {
+  const { request } = useAuth();
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await request("/api/auth/forgot-password", {
+        method: "POST",
+        body: jsonBody({ email: email.trim() }),
+      });
+      setSubmitted(true);
+    } catch (requestError) {
+      setError(requestError.message || "We couldn't process your request. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <main className="grid min-h-[72vh] place-items-center bg-canvas px-5 py-12">
+        <div className="w-full max-w-md rounded-[2rem] border border-line bg-white p-6 shadow-card sm:p-9">
+          <Logo />
+          <p className="eyebrow mt-8">Account recovery</p>
+          <h1 className="mt-2 text-2xl font-black tracking-tight text-ink">Forgot your password?</h1>
+          {submitted ? (
+            <p role="status" className="mt-5 rounded-xl border border-[#d8e9dc] bg-[#f1f8f3] px-4 py-3 text-sm leading-6 text-accent">
+              If an account exists for that email, we’ll send a password reset link.
+            </p>
+          ) : (
+            <>
+              <p className="mt-2 text-sm leading-6 text-muted">
+                Enter your email address and we’ll send instructions if an account matches.
+              </p>
+              {error && <p role="alert" className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</p>}
+              <form onSubmit={submit} className="mt-6 space-y-4">
+                <label className="block">
+                  <span className="mb-2 block text-xs font-bold text-ink">Email address</span>
+                  <input
+                    required
+                    type="email"
+                    autoComplete="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    className="field"
+                    placeholder="you@example.com"
+                  />
+                </label>
+                <button disabled={busy} className="btn-primary w-full">
+                  {busy ? <Spinner /> : "Send reset link"}
+                </button>
+              </form>
+            </>
+          )}
+          <p className="mt-5 text-center text-sm text-muted">
+            Remembered your password? <Link to="/signin" className="font-bold text-accent">Sign in</Link>
+          </p>
+        </div>
+      </main>
+      <Footer />
+    </>
+  );
+}
+
+function ResetPasswordPage() {
+  const { request } = useAuth();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const token = searchParams.get("token") || "";
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPasswords, setShowPasswords] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(event) {
+    event.preventDefault();
+    setError("");
+    if (password.length < 8) {
+      setError("Your password must be at least 8 characters.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("The passwords do not match.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await request("/api/auth/reset-password", {
+        method: "POST",
+        body: jsonBody({ token, new_password: password }),
+      });
+      navigate("/signin", {
+        replace: true,
+        state: { notice: "Your password was reset. Sign in with your new password." },
+      });
+    } catch (resetError) {
+      setError(
+        resetError.message ||
+          "This password reset link is invalid, expired, or already used. Request a new link.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <main className="grid min-h-[72vh] place-items-center bg-canvas px-5 py-12">
+        <div className="w-full max-w-md rounded-[2rem] border border-line bg-white p-6 shadow-card sm:p-9">
+          <Logo />
+          <p className="eyebrow mt-8">Account recovery</p>
+          <h1 className="mt-2 text-2xl font-black tracking-tight text-ink">Choose a new password</h1>
+          {!token ? (
+            <div className="mt-5">
+              <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-800">
+                This password reset link is invalid, expired, or already used. Request a new link.
+              </p>
+              <Link to="/forgot-password" className="btn-primary mt-5 w-full">Request a new link</Link>
+            </div>
+          ) : (
+            <form onSubmit={submit} className="mt-6 space-y-4">
+              <p className="text-sm leading-6 text-muted">Use at least 8 characters for your new password.</p>
+              {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-800">{error}</p>}
+              <label className="block">
+                <span className="mb-2 block text-xs font-bold text-ink">New password</span>
+                <input
+                  required
+                  minLength="8"
+                  maxLength="128"
+                  type={showPasswords ? "text" : "password"}
+                  autoComplete="new-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  className="field"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-2 block text-xs font-bold text-ink">Confirm new password</span>
+                <input
+                  required
+                  minLength="8"
+                  maxLength="128"
+                  type={showPasswords ? "text" : "password"}
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  className="field"
+                />
+              </label>
+              <button
+                type="button"
+                aria-pressed={showPasswords}
+                onClick={() => setShowPasswords((shown) => !shown)}
+                className="text-xs font-bold text-accent hover:underline"
+              >
+                {showPasswords ? "Hide passwords" : "Show passwords"}
+              </button>
+              <button disabled={busy} className="btn-primary w-full">
+                {busy ? <Spinner /> : "Reset password"}
+              </button>
+            </form>
+          )}
+          <p className="mt-5 text-center text-sm text-muted">
+            <Link to="/signin" className="font-bold text-accent">Back to sign in</Link>
           </p>
         </div>
       </main>
@@ -1695,6 +1875,8 @@ export default function App() {
         <Route path="/bookings" element={<MyBookingsPage />} />
         <Route path="/signup" element={<SignupFlow />} />
         <Route path="/signin" element={<SignInPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/login" element={<Navigate to="/signin" replace />} />
         <Route path="/verify-phone" element={<PhoneVerificationPage />} />
         <Route path="/owner" element={<OwnerDashboardPage />} />

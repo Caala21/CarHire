@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
@@ -7,10 +7,12 @@ from app.core.errors import AppError
 from app.models import User
 from app.schemas.auth import (
     LoginRequest,
+    ForgotPasswordRequest,
     GoogleLoginRequest,
     PhoneUpdateRequest,
     RefreshRequest,
     RegisterRequest,
+    ResetPasswordRequest,
     TokenResponse,
     UserResponse,
     VerificationConfirmRequest,
@@ -26,6 +28,11 @@ from app.services.auth import (
     update_user_phone,
 )
 from app.services.verification import confirm_verification, request_verification
+from app.services.password_reset import (
+    GENERIC_REQUEST_MESSAGE,
+    request_password_reset,
+    reset_password,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
@@ -74,6 +81,26 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> TokenRe
 @router.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
     return token_response(authenticate_user(db, str(payload.email), payload.password))
+
+
+@router.post("/forgot-password", response_model=VerificationResponse, status_code=202)
+def forgot_password(
+    payload: ForgotPasswordRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> VerificationResponse:
+    client_ip = request.client.host if request.client is not None else "unknown"
+    request_password_reset(db, str(payload.email), client_ip)
+    return VerificationResponse(message=GENERIC_REQUEST_MESSAGE)
+
+
+@router.post("/reset-password", response_model=VerificationResponse)
+def reset_password_endpoint(
+    payload: ResetPasswordRequest,
+    db: Session = Depends(get_db),
+) -> VerificationResponse:
+    reset_password(db, payload)
+    return VerificationResponse(message="Password reset successfully")
 
 
 @router.post("/google", response_model=TokenResponse)

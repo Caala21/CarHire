@@ -1,3 +1,4 @@
+import hashlib
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -13,14 +14,25 @@ from app.schemas.auth import RegisterRequest
 from app.services import google_auth
 
 ALGORITHM = "HS256"
+PREHASHED_PASSWORD_PREFIX = "sha256$"
 
 
 def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    encoded = password.encode("utf-8")
+    if len(encoded) > 72:
+        encoded = hashlib.sha256(encoded).hexdigest().encode("ascii")
+        return PREHASHED_PASSWORD_PREFIX + bcrypt.hashpw(
+            encoded,
+            bcrypt.gensalt(),
+        ).decode("utf-8")
+    return bcrypt.hashpw(encoded, bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(password: str, password_hash: str) -> bool:
     try:
+        if password_hash.startswith(PREHASHED_PASSWORD_PREFIX):
+            password = hashlib.sha256(password.encode("utf-8")).hexdigest()
+            password_hash = password_hash.removeprefix(PREHASHED_PASSWORD_PREFIX)
         return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
     except ValueError:
         return False

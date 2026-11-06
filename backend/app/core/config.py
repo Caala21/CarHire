@@ -13,8 +13,10 @@ class Settings(BaseSettings):
     access_token_minutes: int = 15
     refresh_token_days: int = 30
     cors_origins: str = "http://localhost:5173"
+    frontend_url: str = "http://localhost:5173"
     production: bool = False
     verification_email_sender: Literal["console", "smtp"] = "console"
+    password_reset_email_sender: Literal["console", "smtp"] = "console"
     verification_sms_sender: Literal["console", "africastalking"] = "console"
     smtp_host: str | None = None
     smtp_port: int = 587
@@ -47,15 +49,22 @@ class Settings(BaseSettings):
 
         if self.production and (
             self.verification_email_sender == "console"
+            or self.password_reset_email_sender == "console"
             or self.verification_sms_sender == "console"
         ):
-            raise ValueError("Production requires non-console verification senders")
+            raise ValueError("Production requires non-console email and SMS senders")
 
-        if self.verification_email_sender == "smtp" and not all(
+        if (
+            self.verification_email_sender == "smtp"
+            or self.password_reset_email_sender == "smtp"
+        ) and not all(
             (self.smtp_host, self.smtp_from_email)
         ):
-            raise ValueError("SMTP verification requires SMTP_HOST and SMTP_FROM_EMAIL")
-        if self.verification_email_sender == "smtp" and self.smtp_username and not self.smtp_password:
+            raise ValueError("SMTP email requires SMTP_HOST and SMTP_FROM_EMAIL")
+        if (
+            self.verification_email_sender == "smtp"
+            or self.password_reset_email_sender == "smtp"
+        ) and self.smtp_username and not self.smtp_password:
             raise ValueError("SMTP_USERNAME requires SMTP_PASSWORD")
 
         if self.verification_sms_sender == "africastalking" and not all(

@@ -18,7 +18,11 @@ from app.models.stored_file import StoredFile
 from app.models.user import CustomerProfile, OwnerProfile, User
 from app.models.vehicle import Vehicle
 from app.models.vehicle_block import VehicleBlock
-from app.models.verification import VerificationCode
+from app.models.verification import (
+    PasswordResetRequestLog,
+    PasswordResetToken,
+    VerificationCode,
+)
 
 __all__ = [
     "Booking",
@@ -41,5 +45,7 @@ __all__ = [
     "VehicleStatus",
     "VerificationChannel",
     "VerificationCode",
+    "PasswordResetRequestLog",
+    "PasswordResetToken",
     "StoredFile",
 ]
