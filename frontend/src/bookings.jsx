@@ -14,14 +14,6 @@ function dateKey(date) {
   return `${year}-${month}-${day}`;
 }
 
-const refreshBookingList = useCallback(async () => {
-  try {
-    setBookings(await request("/api/bookings/me"));
-  } catch (loadError) {
-    setError(loadError.message || "Your bookings could not be refreshed.");
-  }
-}, [request]);
-
 function localDate(value) {
   const [year, month, day] = value.split("-").map(Number);
   return new Date(year, month - 1, day);
@@ -248,6 +240,13 @@ export function MyBookingsPage() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState("");
+  const refreshBookingList = useCallback(async () => {
+    try {
+      setBookings(await request("/api/bookings/me"));
+    } catch (loadError) {
+      setError(loadError.message || "Your bookings could not be refreshed.");
+    }
+  }, [request]);
 
   async function loadBookings() {
     setLoading(true);
