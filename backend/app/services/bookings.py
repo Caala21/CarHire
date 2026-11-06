@@ -1,11 +1,12 @@
 from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.errors import AppError
+from app.core.config import settings
 from app.models import (
     Booking,
     BookingStatus,
@@ -109,14 +110,20 @@ def create_booking(
 
     number_of_days = (payload.end_date - payload.start_date).days
     deposit = Decimal(vehicle.deposit_amount)
+    total_price = Decimal(vehicle.daily_rate) * number_of_days + deposit
+    commission_amount = (
+        deposit * settings.commission_percent / Decimal("100")
+    ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     booking = Booking(
         customer_id=user.id,
         vehicle_id=vehicle.id,
         start_date=payload.start_date,
         end_date=payload.end_date,
         status=BookingStatus.PENDING,
-        total_price=Decimal(vehicle.daily_rate) * number_of_days + deposit,
+        total_price=total_price,
         deposit_amount=deposit,
+        commission_amount=commission_amount,
+        owner_payout_amount=deposit - commission_amount,
         deposit_paid=False,
         expires_at=datetime.now(timezone.utc) + BOOKING_HOLD_DURATION,
     )

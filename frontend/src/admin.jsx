@@ -16,6 +16,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   UsersRound,
+  WalletCards,
   X,
 } from "lucide-react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
@@ -153,6 +154,7 @@ function AdminArea() {
   const [owners, setOwners] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [audits, setAudits] = useState([]);
+  const [payments, setPayments] = useState([]);
   const [pageError, setPageError] = useState("");
   const [pageLoading, setPageLoading] = useState(false);
   const [selectedOwner, setSelectedOwner] = useState(null);
@@ -196,6 +198,7 @@ function AdminArea() {
         setVehicles(await request(isExpiring ? `${api}/vehicles/expiring` : `${api}/vehicles?status=pending`));
       }
       if (activeSection === "audit") setAudits(await request(`${api}/audit?limit=50`));
+      if (activeSection === "payments") setPayments(await request(`${api}/payments`));
     } catch (error) {
       setPageError(error.message);
     } finally {
@@ -275,11 +278,12 @@ function AdminArea() {
     );
   }
 
-  const sectionName = activeSection === "dashboard" ? "Dashboard" : activeSection === "owners" ? "Owner review" : activeSection === "vehicles" ? isExpiring ? "Expiring documents" : "Vehicle review" : "Audit trail";
+  const sectionName = activeSection === "dashboard" ? "Dashboard" : activeSection === "owners" ? "Owner review" : activeSection === "vehicles" ? isExpiring ? "Expiring documents" : "Vehicle review" : activeSection === "payments" ? "Payments" : "Audit trail";
   const navItems = [
     { path: "/admin", label: "Dashboard", icon: <LayoutDashboard size={18} />, key: "dashboard" },
     { path: "/admin/owners", label: "Owners", icon: <UsersRound size={18} />, key: "owners", count: dashboard?.pending_owners },
     { path: "/admin/vehicles", label: "Vehicles", icon: <FileCheck2 size={18} />, key: "vehicles", count: dashboard?.pending_vehicles },
+    { path: "/admin/payments", label: "Payments", icon: <WalletCards size={18} />, key: "payments" },
     { path: "/admin/audit", label: "Audit trail", icon: <Clock3 size={18} />, key: "audit" },
   ];
 
@@ -311,6 +315,7 @@ function AdminArea() {
           {activeSection === "dashboard" && <DashboardView data={dashboard} loading={dashboardLoading} error={dashboardError} onRetry={loadDashboard} navigate={navigate} />}
           {activeSection === "owners" && <OwnerQueue owners={owners} loading={pageLoading} error={pageError} request={request} onRetry={loadSection} onSelect={setSelectedOwner} onError={(message) => notify(message, "error")} />}
           {activeSection === "vehicles" && <VehicleQueue vehicles={vehicles} loading={pageLoading} error={pageError} isExpiring={isExpiring} navigate={navigate} onRetry={loadSection} onSelect={(vehicle) => { setSelectedVehicle(vehicle); setVehicleChecks({}); }} />}
+          {activeSection === "payments" && <PaymentsQueue payments={payments} loading={pageLoading} error={pageError} onRetry={loadSection} />}
           {activeSection === "audit" && <AuditView audits={audits} loading={pageLoading} error={pageError} onRetry={loadSection} />}
         </section>
       </div>
@@ -322,6 +327,38 @@ function AdminArea() {
         if (confirm.type === "suspend-vehicle") await suspendVehicle(confirm.target);
       }} />}
       {toast && <div role="status" className={`fixed bottom-5 right-5 z-[70] flex max-w-sm items-center gap-3 rounded-2xl px-4 py-3.5 text-sm font-semibold text-white shadow-card ${toast.type === "error" ? "bg-[#a52d2d]" : "bg-[#123d2e]"}`}><CheckCircle2 size={18} />{toast.message}<button onClick={() => setToast(null)} aria-label="Dismiss notification" className="ml-1 rounded-lg p-1 hover:bg-white/10"><X size={15} /></button></div>}
+    </div>
+  );
+}
+
+function PaymentsQueue({ payments, loading, error, onRetry }) {
+  if (loading) return <QueueSkeleton />;
+  if (error) return <InlineError message={error} onRetry={onRetry} />;
+  return (
+    <div className="overflow-x-auto rounded-3xl border border-line bg-white shadow-soft">
+      <table className="w-full min-w-[720px] text-left text-sm">
+        <thead className="border-b border-line bg-canvas text-xs uppercase tracking-wide text-muted">
+          <tr>
+            <th className="px-5 py-4 font-bold">Booking</th>
+            <th className="px-5 py-4 font-bold">Amount</th>
+            <th className="px-5 py-4 font-bold">M-Pesa receipt</th>
+            <th className="px-5 py-4 font-bold">Status</th>
+            <th className="px-5 py-4 font-bold">Payout status</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-line">
+          {payments.map((payment) => (
+            <tr key={payment.id}>
+              <td className="px-5 py-4"><span className="block font-extrabold text-ink">#{payment.booking_id} · {payment.vehicle}</span><span className="mt-1 block text-xs text-muted">Payment #{payment.id}</span></td>
+              <td className="px-5 py-4 font-bold text-ink">KES {Number(payment.amount).toLocaleString("en-KE")}</td>
+              <td className="px-5 py-4 font-semibold text-ink">{payment.mpesa_receipt || "—"}</td>
+              <td className="px-5 py-4"><span className={`rounded-full px-3 py-1.5 text-xs font-bold capitalize ${payment.status === "completed" ? "bg-[#e7f4eb] text-accent" : payment.status === "failed" ? "bg-red-50 text-red-700" : "bg-[#fbf0dc] text-[#94630f]"}`}>{payment.status}</span></td>
+              <td className="px-5 py-4 text-muted capitalize">{payment.payout_status.replaceAll("_", " ")}</td>
+            </tr>
+          ))}
+          {!payments.length && <tr><td colSpan="5" className="px-5 py-12 text-center text-muted">No payments have been recorded.</td></tr>}
+        </tbody>
+      </table>
     </div>
   );
 }

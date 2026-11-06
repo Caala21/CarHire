@@ -42,6 +42,8 @@ class BookingResponse(BaseModel):
     status: BookingStatus
     total_price: Decimal
     deposit_amount: Decimal
+    commission_amount: Decimal
+    owner_payout_amount: Decimal
     deposit_paid: bool
     expires_at: datetime | None
     created_at: datetime

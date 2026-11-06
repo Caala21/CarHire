@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarDays, Clock3, Trash2 } from "lucide-react";
 import { DayPicker } from "react-day-picker";
 import "react-day-picker/style.css";
@@ -13,6 +13,14 @@ function dateKey(date) {
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
+
+const refreshBookingList = useCallback(async () => {
+  try {
+    setBookings(await request("/api/bookings/me"));
+  } catch (loadError) {
+    setError(loadError.message || "Your bookings could not be refreshed.");
+  }
+}, [request]);
 
 function localDate(value) {
   const [year, month, day] = value.split("-").map(Number);
@@ -316,6 +324,17 @@ export function MyBookingsPage() {
                       <Clock3 size={14} /> Payment is due within 30 minutes of booking.
                     </p>
                   )}
+                  {booking.status === "pending" && (
+                    <DepositPayment
+                      booking={booking}
+                      initialPhone={user?.phone || "254"}
+                      request={request}
+                      onPaid={refreshBookingList}
+                    />
+                  )}
+                  {booking.deposit_paid && (
+                    <BookingReceipt bookingId={booking.id} request={request} />
+                  )}
                   {canCancel && (
                     <button
                       type="button"
@@ -342,6 +361,195 @@ export function MyBookingsPage() {
         <div className="mx-auto max-w-7xl px-5 py-8 text-sm text-muted sm:px-8">CarHire Kenya</div>
       </footer>
     </>
+  );
+}
+
+function DepositPayment({ booking, initialPhone, request, onPaid }) {
+  const [phone, setPhone] = useState(initialPhone);
+  const [payment, setPayment] = useState(null);
+  const [stage, setStage] = useState("idle");
+  const [startedAt, setStartedAt] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    request(`/api/bookings/${booking.id}/payment`)
+      .then((existing) => {
+        if (!active) return;
+        setPayment(existing);
+        if (existing.status === "completed") setStage("success");
+        if (existing.status === "completed") void onPaid();
+        else if (existing.status === "pending") {
+          setStartedAt(Date.now());
+          setStage("waiting");
+        } else if (existing.status === "failed") {
+          setStage(/cancel/i.test(existing.result_description || "") ? "cancelled" : "failed");
+        }
+      })
+      .catch((loadError) => {
+        if (active && loadError.status !== 404) {
+          setError(loadError.message || "Payment status could not be loaded.");
+        }
+      });
+    return () => { active = false; };
+  }, [booking.id, onPaid, request]);
+
+  useEffect(() => {
+    if (stage !== "waiting" || !payment?.id || !startedAt) return undefined;
+    let active = true;
+    let timer;
+    const poll = async () => {
+      if (Date.now() - startedAt >= 120_000) {
+        setStage("timeout");
+        return;
+      }
+      try {
+        const latest = await request(`/api/payments/${payment.id}`);
+        if (!active) return;
+        setPayment(latest);
+        if (latest.status === "completed") {
+          setStage("success");
+          void onPaid();
+          return;
+        }
+        if (latest.status === "failed") {
+          setStage(/cancel/i.test(latest.result_description || "") ? "cancelled" : "failed");
+          return;
+        }
+      } catch (pollError) {
+        if (active) setError(pollError.message || "Payment status could not be checked.");
+      }
+      if (active) timer = window.setTimeout(poll, 3000);
+    };
+    timer = window.setTimeout(poll, 3000);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [onPaid, payment?.id, request, stage, startedAt]);
+
+  async function startPayment(event) {
+    event?.preventDefault();
+    if (!/^254[17]\d{8}$/.test(phone)) {
+      setError("Enter a valid Kenyan mobile number in 254 format.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const created = await request(`/api/bookings/${booking.id}/pay`, {
+        method: "POST",
+        body: jsonBody({ phone }),
+      });
+      setPayment(created);
+      setStartedAt(Date.now());
+      setStage("waiting");
+    } catch (paymentError) {
+      setError(paymentError.message || "M-Pesa could not start the payment request.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function retry() {
+    setError("");
+    if (stage === "timeout" && payment?.status === "pending") {
+      setStartedAt(Date.now());
+      setStage("waiting");
+    } else {
+      setPayment(null);
+      setStage("idle");
+    }
+  }
+
+  const states = {
+    waiting: "Check your phone and enter your M-Pesa PIN.",
+    success: "Deposit paid successfully.",
+    failed: payment?.result_description || "The payment failed. You can try again.",
+    cancelled: "The M-Pesa request was cancelled. You can try again.",
+    timeout: "Payment is still pending. Check your M-Pesa messages, then retry status checking.",
+  };
+
+  return (
+    <section className="mt-4 rounded-2xl border border-[#d8e9dc] bg-[#f7fbf8] p-4">
+      {(stage === "failed" || stage === "cancelled") && (
+        <p role="alert" className="mb-3 text-sm font-semibold text-red-700">{states[stage]}</p>
+      )}
+      {stage === "idle" || stage === "failed" || stage === "cancelled" ? (
+        <form onSubmit={startPayment}>
+          <p className="text-sm font-extrabold text-ink">Pay deposit with M-Pesa</p>
+          <p className="mt-1 text-sm text-muted">
+            KES {Number(booking.deposit_amount).toLocaleString("en-KE")} will be charged to this phone.
+          </p>
+          <label className="mt-3 block text-xs font-bold text-ink" htmlFor={`mpesa-phone-${booking.id}`}>
+            M-Pesa phone number
+          </label>
+          <input
+            id={`mpesa-phone-${booking.id}`}
+            required
+            inputMode="tel"
+            autoComplete="tel"
+            value={phone}
+            onChange={(event) => setPhone(event.target.value.replace(/\D/g, "").slice(0, 12))}
+            placeholder="254712345678"
+            className="field mt-2"
+          />
+          <button type="submit" disabled={busy || phone.length !== 12} className="btn-primary mt-3 w-full">
+            {busy ? "Sending request…" : stage === "idle" ? "Pay deposit with M-Pesa" : "Retry payment"}
+          </button>
+        </form>
+      ) : (
+        <div role={stage === "failed" || stage === "cancelled" || stage === "timeout" ? "alert" : "status"}>
+          <p className={`text-sm font-bold ${stage === "success" ? "text-accent" : "text-ink"}`}>
+            {stage === "waiting" ? "Check your phone and enter your M-Pesa PIN." : states[stage]}
+          </p>
+          {stage === "success" && payment?.mpesa_receipt && (
+            <p className="mt-2 text-sm text-muted">M-Pesa receipt: <strong className="text-ink">{payment.mpesa_receipt}</strong></p>
+          )}
+          {stage === "waiting" && <p className="mt-2 text-xs text-muted">We’re checking your payment. This can take up to 2 minutes.</p>}
+          {stage !== "waiting" && stage !== "success" && (
+            <button type="button" onClick={retry} className="btn-secondary mt-3">
+              {stage === "timeout" ? "Check payment again" : "Retry payment"}
+            </button>
+          )}
+        </div>
+      )}
+      {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
+    </section>
+  );
+}
+
+function BookingReceipt({ bookingId, request }) {
+  const [receipt, setReceipt] = useState(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    request(`/api/bookings/${bookingId}/receipt`)
+      .then((result) => {
+        if (active) setReceipt(result);
+      })
+      .catch((loadError) => {
+        if (active && loadError.status !== 404) {
+          setError(loadError.message || "The payment receipt could not be loaded.");
+        }
+      });
+    return () => { active = false; };
+  }, [bookingId, request]);
+
+  if (error) return <p role="alert" className="mt-4 text-sm text-red-700">{error}</p>;
+  if (!receipt) return null;
+  return (
+    <div className="mt-4 rounded-2xl border border-[#d8e9dc] bg-[#f7fbf8] p-4">
+      <p className="text-sm font-extrabold text-accent">M-Pesa deposit receipt</p>
+      <p className="mt-1 text-sm text-muted">
+        Receipt number: <strong className="text-ink">{receipt.mpesa_receipt}</strong>
+      </p>
+      <p className="mt-1 text-xs text-muted">
+        KES {Number(receipt.amount).toLocaleString("en-KE")} · {new Date(receipt.paid_at).toLocaleString("en-KE")}
+      </p>
+    </div>
   );
 }
 

@@ -32,6 +32,8 @@ class Booking(Base):
     )
     total_price: Mapped[Decimal] = mapped_column(Numeric(10, 2))
     deposit_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    commission_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
+    owner_payout_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
     deposit_paid: Mapped[bool] = mapped_column(default=False)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

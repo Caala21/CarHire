@@ -817,7 +817,7 @@ function SignupFlow() {
       });
       const payload = await readResponse(response);
       signIn(payload);
-      if (!payload.user.phone_verified_at) {
+      if (needsPhoneVerification(payload.user)) {
         const from = intent ? `/signup?intent=${intent}` : "/signup";
         navigate("/verify-phone", { replace: true, state: { from } });
       } else {
@@ -1290,6 +1290,10 @@ function getPostSignInPath(user, from) {
   return "/";
 }
 
+function needsPhoneVerification(user) {
+  return user?.role !== "admin" && !user?.phone_verified_at;
+}
+
 function SignInPage() {
   const { signIn } = useAuth();
   const location = useLocation();
@@ -1314,7 +1318,7 @@ function SignInPage() {
       const payload = await readResponse(response);
       signIn(payload);
       const destination = getPostSignInPath(payload.user, location.state?.from);
-      if (!payload.user.phone_verified_at) {
+      if (needsPhoneVerification(payload.user)) {
         navigate("/verify-phone", { replace: true, state: { from: destination } });
       } else {
         navigate(destination, { replace: true });
@@ -1346,7 +1350,7 @@ function SignInPage() {
       const payload = await readResponse(response);
       signIn(payload);
       const destination = getPostSignInPath(payload.user, location.state?.from);
-      if (!payload.user.phone_verified_at) {
+      if (needsPhoneVerification(payload.user)) {
         navigate("/verify-phone", { replace: true, state: { from: destination } });
       } else {
         navigate(destination, { replace: true });
@@ -1440,7 +1444,7 @@ function PhoneVerificationPage() {
   const [phone, setPhone] = useState(user?.phone || "254");
 
   useEffect(() => {
-    if (!isSignedIn || user?.phone_verified_at || !user?.phone) return;
+    if (!isSignedIn || !needsPhoneVerification(user) || !user?.phone) return;
     let active = true;
     setBusy(true);
     request("/api/auth/verify/request", { method: "POST", body: jsonBody({ channel: "phone" }) })
@@ -1462,7 +1466,7 @@ function PhoneVerificationPage() {
   }, [seconds]);
 
   if (!isSignedIn) return <Navigate to="/signin" replace />;
-  if (user?.phone_verified_at) return <Navigate to={getPostSignInPath(user, location.state?.from)} replace />;
+  if (!needsPhoneVerification(user)) return <Navigate to={getPostSignInPath(user, location.state?.from)} replace />;
 
   async function requestCode() {
     setBusy(true);
